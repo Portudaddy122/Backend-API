@@ -5,7 +5,7 @@ import {createProfesor, getProfesores, getProfesorById, updateProfesor, deletePr
 const router = Router();
 
 //Obtener el listado de todas las personas en la base de datos
-router.get('/obtener/profesor', getProfesores);
+router.get('/obtener/profesores', getProfesores);
 
 //Obtener los datos de la persona a traves de su id
 router.get('/profesor/:idProfesor', getProfesorById);
@@ -17,7 +17,7 @@ router.post('/crear/profesor', createProfesor);
 router.put('/actualizar/profesor/:idProfesor', updateProfesor );
 
 //Eliminar usuario persona
-router.delete('/eliminar/persona/:idProfesor', deleteProfesor);
+router.delete('/eliminar/profesor/:idProfesor', deleteProfesor);
 
 
 
