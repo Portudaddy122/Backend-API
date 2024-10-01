@@ -11,9 +11,9 @@ export const getPersona = async (req, res) => {
 };
 
 export const getPersonaId = async (req, res) => {
-    const { idPersona } = req.params;
+    const { idpersona } = req.params;
     try {
-        const { rows } = await pool.query('SELECT * FROM Persona WHERE idPersona = $1 AND Estado = true', [idPersona]);
+        const { rows } = await pool.query('SELECT * FROM Persona WHERE idpersona = $1 ', [idpersona]);
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Persona no encontrada o inactiva' });
         }
@@ -48,7 +48,7 @@ export const createPersona = async (req, res) => {
 };
 
 export const updatePersona = async (req, res) => {
-    const { id } = req.params;
+    const { idpersona } = req.params;
     const data = req.body;
 
     // Validar que todos los campos requeridos no sean nulos o vacíos, 
@@ -62,7 +62,7 @@ export const updatePersona = async (req, res) => {
 
     try {
         // Primero, obtén la persona para verificar su existencia
-        const result = await pool.query('SELECT * FROM Persona WHERE idPersona = $1', [id]);
+        const result = await pool.query('SELECT * FROM Persona WHERE idPersona = $1', [idpersona]);
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'Persona no encontrada' });
         }
@@ -91,7 +91,7 @@ export const updatePersona = async (req, res) => {
                 data.num_celular,
                 data.fecha_de_nacimiento,
                 data.estado, // Asegúrate de que este campo está incluido
-                id
+                idpersona
             ]
         );
 
@@ -104,11 +104,11 @@ export const updatePersona = async (req, res) => {
 
 
 export const deletePersona = async (req, res) => {
-    const { id } = req.params;
+    const { idpersona } = req.params;
 
     try {
         // Verificar si la persona existe
-        const result = await pool.query('SELECT * FROM Persona WHERE idpersona = $1', [id]);
+        const result = await pool.query('SELECT * FROM Persona WHERE idpersona = $1', [idpersona]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Persona no encontrada' });
         }
@@ -120,10 +120,32 @@ export const deletePersona = async (req, res) => {
         }
 
         // Actualizar el estado de la persona a false
-        await pool.query('UPDATE Persona SET estado = $1 WHERE idpersona = $2', [false, id]);
+        await pool.query('UPDATE Persona SET estado = $1 WHERE idpersona = $2', [false, idpersona]);
 
         res.json({ message: 'Persona desactivada correctamente' });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 };
+
+
+
+export const getUserCount = async (req, res) => {
+    try {
+      const query = `
+        SELECT COUNT(*) AS total_users
+        FROM persona
+        WHERE estado = true;
+      `;
+  
+      const result = await pool.query(query);
+      const totalUsers = parseInt(result.rows[0].total_users, 10);
+  
+      res.status(200).json({
+        total: totalUsers,
+      });
+    } catch (error) {
+      console.error('Error fetching user count:', error);
+      res.status(500).json({ error: 'Error fetching user count' });
+    }
+  };

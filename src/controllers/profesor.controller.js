@@ -183,3 +183,24 @@ export const deleteProfesor = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
+
+
+export const getProfesorCount = async (req, res) => {
+    try {
+      const query = `
+        SELECT COUNT(*) AS total_profesores
+        FROM Profesor
+        WHERE estado = true;
+      `;
+  
+      const result = await pool.query(query);
+      const totalProfesores = parseInt(result.rows[0].total_profesores, 10);
+  
+      res.status(200).json({
+        total: totalProfesores,
+      });
+    } catch (error) {
+      console.error('Error fetching profesor count:', error);
+      res.status(500).json({ error: 'Error fetching profesor count' });
+    }
+  };

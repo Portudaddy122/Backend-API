@@ -1,5 +1,5 @@
 import Router from 'express';
-import {createProfesor, getProfesores, getProfesorById, updateProfesor, deleteProfesor } from '../controllers/profesor.controller.js';
+import {createProfesor, getProfesores, getProfesorById, updateProfesor, deleteProfesor, getProfesorCount } from '../controllers/profesor.controller.js';
 
 
 const router = Router();
@@ -19,6 +19,7 @@ router.put('/actualizar/profesor/:idProfesor', updateProfesor );
 //Eliminar usuario persona
 router.delete('/eliminar/profesor/:idProfesor', deleteProfesor);
 
+router.get('/obtener/cantidad/profesores', getProfesorCount);
 
 
 export default router;
