@@ -1,206 +1,293 @@
 import { pool } from "../db.js";
+import bcrypt from "bcrypt";
 
-
+// Obtener todos los profesores
 export const getProfesores = async (req, res) => {
-    try {
-        const { rows } = await pool.query(`
-            SELECT p.*, pr.idProfesor, pr.contrasenia, 
-            CASE 
-                WHEN p.estado = false THEN 'Deshabilitado' 
-                ELSE 'Habilitado' 
-            END AS estado_usuario
-            FROM Persona p 
-            INNER JOIN Profesor pr ON p.idPersona = pr.idPersona
-        `);
-        res.json(rows);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error al obtener los profesores' });
-    }
+  try {
+    const { rows } = await pool.query(
+      `
+            SELECT *
+            FROM Profesor
+            ORDER BY idProfesor ASC
+        `
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al obtener los profesores" });
+  }
 };
 
-
+// Obtener un profesor por ID
 export const getProfesorById = async (req, res) => {
-    const { idProfesor } = req.params;
-    
-    try {
-        const { rows } = await pool.query(`
-            SELECT p.*, pr.idProfesor, pr.contrasenia, pr.estado AS profesorEstado 
-            FROM Persona p
-            INNER JOIN Profesor pr ON p.idPersona = pr.idPersona
-            WHERE pr.idProfesor = $1
-        `, [idProfesor]);
+  const { idProfesor } = req.params;
 
-        if (rows.length === 0) {
-            return res.status(404).json({ error: 'Profesor no encontrado' });
-        }
+  try {
+    const { rows } = await pool.query(
+      `
+            SELECT *
+            FROM Profesor
+            WHERE idProfesor = $1
+        `,
+      [idProfesor]
+    );
 
-        const persona = rows[0];
-
-        // Verificar si el estado del profesor es false
-        if (persona.profesorestado === false) {
-            return res.status(404).json({ error: 'Usuario deshabilitado' });
-        }
-
-        if (persona.rol !== 'Profesor') {
-            return res.status(400).json({ error: 'El usuario no es Profesor' });
-        }
-
-        res.json(persona);
-        
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error al obtener el profesor' });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Profesor no encontrado" });
     }
+
+    const profesor = rows[0];
+
+    if (!profesor.estado) {
+      return res.status(400).json({ error: "Profesor está deshabilitado" });
+    }
+
+    res.json(profesor);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al obtener el profesor" });
+  }
 };
 
-
+// Crear un nuevo profesor
 export const createProfesor = async (req, res) => {
-    const { idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento, contrasenia } = req.body;
+  const {
+    idDireccion,
+    nombres,
+    apellidoPaterno,
+    apellidoMaterno,
+    email,
+    numCelular,
+    fechaDeNacimiento,
+    contrasenia,
+    rol,
+  } = req.body;
 
-    try {
-        // Validar campos obligatorios
-        const requiredFields = [idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento, contrasenia];
-        for (const field of requiredFields) {
-            if (field === null || field === undefined || field === '') {
-                return res.status(400).json({ error: 'Todos los campos son obligatorios y no pueden ser nulos' });
-            }
-        }
-
-        if (rol !== 'Profesor') {
-            return res.status(400).json({ error: 'El rol debe ser Profesor' });
-        }
-
-        // Insertar en la tabla Persona con estado habilitado (true)
-        const personaResult = await pool.query(
-            `INSERT INTO Persona (idDireccion, nombres, apellido_paterno, apellido_materno, rol, email, num_celular, fecha_de_nacimiento, estado) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING idPersona`,
-            [idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento]
-        );
-        const idPersona = personaResult.rows[0].idpersona;
-
-        // Insertar en la tabla Profesor
-        const profesorResult = await pool.query(
-            `INSERT INTO Profesor (idPersona, Contrasenia, Estado) 
-            VALUES ($1, $2, true) RETURNING *`,
-            [idPersona, contrasenia]
-        );
-
-        res.status(201).json(profesorResult.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: err.message });
+  try {
+    // Validar campos obligatorios sin espacios en blanco y que no contengan caracteres especiales
+    const requiredFields = {
+      idDireccion,
+      nombres,
+      apellidoPaterno,
+      apellidoMaterno,
+      rol,
+      email,
+      numCelular,
+      fechaDeNacimiento,
+      contrasenia,
+    };
+    for (const [key, value] of Object.entries(requiredFields)) {
+      if (!value || value.trim() === "") {
+        return res
+          .status(400)
+          .json({ error: `El campo ${key} es obligatorio y no puede estar vacío ni contener solo espacios en blanco` });
+      }
+      if (["nombres", "apellidoPaterno", "apellidoMaterno"].includes(key) && /[^a-zA-Z\s]/.test(value)) {
+        return res
+          .status(400)
+          .json({ error: `El campo ${key} no puede contener caracteres especiales o números` });
+      }
     }
+
+    // Validar que el rol sea "Profesor"
+    if (rol !== "Profesor") {
+      return res.status(400).json({ error: "El rol debe ser Profesor" });
+    }
+
+    // Validar que el email no esté repetido
+    const emailCheck = await pool.query(
+      "SELECT idProfesor FROM Profesor WHERE email = $1",
+      [email]
+    );
+    if (emailCheck.rows.length > 0) {
+      return res.status(400).json({
+        error: "El correo electrónico ya está registrado por otro usuario",
+      });
+    }
+    const hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
+
+
+    // Insertar en la tabla Profesor
+    const profesorResult = await pool.query(
+      `INSERT INTO Profesor (idDireccion, Nombres, ApellidoPaterno, ApellidoMaterno, email, NumCelular, FechaDeNacimiento, Contrasenia, Rol, Estado) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING *`,
+      [
+        idDireccion,
+        nombres,
+        apellidoPaterno,
+        apellidoMaterno,
+        email,
+        numCelular,
+        fechaDeNacimiento,
+        hashedPassword,
+        rol,
+      ]
+    );
+
+    res.status(201).json(profesorResult.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
-
-
+// Actualizar un profesor
 export const updateProfesor = async (req, res) => {
-    const { idProfesor } = req.params;
-    const { 
-        idDireccion, 
-        nombres, 
-        apellido_Paterno, 
-        apellido_Materno, 
-        rol, 
-        email, 
-        num_celular, 
-        fecha_de_nacimiento, 
-        contrasenia, 
-        estado 
-    } = req.body;
+  const { idProfesor } = req.params;
+  const {
+    idDireccion,
+    nombres,
+    apellidoPaterno,
+    apellidoMaterno,
+    email,
+    numCelular,
+    fechaDeNacimiento,
+    contrasenia,
+    estado,
+    rol,
+  } = req.body;
+   // Validar campos obligatorios si se envían
+   if (
+    (idDireccion && idDireccion === "") ||
+    (nombres && !nombres.trim()) ||
+    (apellidoPaterno && !apellidoPaterno.trim()) ||
+    (apellidoMaterno && !apellidoMaterno.trim()) ||
+    (email && !email.trim()) ||
+    (numCelular && !numCelular.trim()) ||
+    (fechaDeNacimiento && !fechaDeNacimiento.trim()) ||
+    (contrasenia && !contrasenia.trim()) ||
+    (rol && !rol.trim())
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Todos los campos son obligatorios y no pueden contener solo espacios en blanco" });
+  }
 
-    try {
-        // Primero obtenemos el idPersona relacionado al profesor
-        const profesorResult = await pool.query('SELECT idpersona FROM Profesor WHERE idprofesor = $1', [idProfesor]);
+  // Validar que los nombres y apellidos no contengan caracteres especiales si se proporcionan
+  const namePattern = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
+  if (nombres && !namePattern.test(nombres)) {
+    return res.status(400).json({
+      error: "Los nombres no deben contener caracteres especiales",
+    });
+  }
+  if (apellidoPaterno && !namePattern.test(apellidoPaterno)) {
+    return res.status(400).json({
+      error: "El apellido paterno no debe contener caracteres especiales",
+    });
+  }
+  if (apellidoMaterno && !namePattern.test(apellidoMaterno)) {
+    return res.status(400).json({
+      error: "El apellido materno no debe contener caracteres especiales",
+    });
+  }
 
-        if (profesorResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Profesor no encontrado' });
-        }
+  // Validar que el rol sea "Profesor"
+  if (rol && rol !== "Profesor") {
+    return res.status(400).json({ error: "El rol debe ser Profesor" });
+  }
 
-        const idPersona = profesorResult.rows[0].idpersona;
-
-        // Actualizamos los datos en la tabla Persona
-        await pool.query(`
-            UPDATE Persona 
-            SET idDireccion = $1, 
-                nombres = $2, 
-                apellido_paterno = $3, 
-                apellido_materno = $4, 
-                rol = $5, 
-                email = $6, 
-                num_celular = $7, 
-                fecha_de_nacimiento = $8, 
-                estado = $9 
-            WHERE idpersona = $10
-        `, [idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento, estado, idPersona]);
-
-        // Actualizamos la contraseña en la tabla Profesor
-        await pool.query(`
-            UPDATE Profesor 
-            SET contrasenia = $1 
-            WHERE idProfesor = $2
-        `, [contrasenia, idProfesor]);
-
-        res.json({ message: 'Profesor actualizado correctamente' });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Error al actualizar el profesor' });
+  // Validar que el email no esté repetido si se proporciona
+  if (email) {
+    const emailCheck = await pool.query(
+      "SELECT idProfesor FROM Profesor WHERE email = $1 AND idProfesor != $2",
+      [email.trim(), idProfesor]
+    );
+    if (emailCheck.rows.length > 0) {
+      return res.status(400).json({
+        error: "El correo electrónico ya está registrado por otro usuario",
+      });
     }
+  }
+  try {
+    const { rows } = await pool.query("SELECT * FROM Profesor WHERE idProfesor = $1", [idProfesor]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Profesor no encontrado" });
+    }
+    const currentData = rows[0];
+
+    let hashedPassword = currentData.contrasenia; // Mantener la contraseña actual si no se proporciona
+    if (contrasenia) {
+      hashedPassword = await bcrypt.hash(contrasenia.trim(), 10); // Cifrar si se proporciona una nueva
+    }
+
+    await pool.query(
+      `UPDATE Profesor 
+        SET idDireccion = $1, Nombres = $2, ApellidoPaterno = $3, ApellidoMaterno = $4, email = $5, NumCelular = $6, FechaDeNacimiento = $7, Contrasenia = $8, Rol = $9, Estado = $10
+        WHERE idProfesor = $11`,
+      [
+        idDireccion || currentData.iddireccion,
+        nombres?.trim() || currentData.nombres,
+        apellidoPaterno?.trim() || currentData.apellidopaterno,
+        apellidoMaterno?.trim() || currentData.apellidomaterno,
+        email?.trim() || currentData.email,
+        numCelular?.trim() || currentData.numcelular,
+        fechaDeNacimiento || currentData.fechadenacimiento,
+        hashedPassword, // Usar la nueva contraseña cifrada o mantener la actual
+        rol?.trim() || currentData.rol,
+        estado !== undefined ? estado : currentData.estado,
+        idProfesor,
+      ]
+    );
+
+    res.json({ message: "Profesor actualizado correctamente" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
-
+  
+// Eliminar un profesor (desactivar)
 export const deleteProfesor = async (req, res) => {
-    const { idProfesor } = req.params;
+  const { idProfesor } = req.params;
 
-    try {
-        // Iniciar una transacción
-        await pool.query('BEGIN');
+  try {
+    await pool.query("BEGIN");
 
-        // Primero obtenemos el idPersona relacionado al profesor
-        const profesorResult = await pool.query('SELECT idpersona FROM Profesor WHERE idprofesor = $1', [idProfesor]);
+    const profesorResult = await pool.query(
+      "SELECT idProfesor FROM Profesor WHERE idProfesor = $1 AND Estado = true",
+      [idProfesor]
+    );
 
-        if (profesorResult.rows.length === 0) {
-            await pool.query('ROLLBACK'); // Si no se encuentra el profesor, se cancela la transacción
-            return res.status(404).json({ error: 'Profesor no encontrado' });
-        }
-
-        const idPersona = profesorResult.rows[0].idpersona;
-
-        // Actualizamos el estado del profesor a false (inactivo)
-        await pool.query('UPDATE Profesor SET Estado = false WHERE idprofesor = $1', [idProfesor]);
-
-        // También actualizamos el estado de la persona a false
-        await pool.query('UPDATE Persona SET Estado = false WHERE idpersona = $1', [idPersona]);
-
-        // Confirmamos la transacción
-        await pool.query('COMMIT');
-
-        res.json({ message: 'Profesor marcado como inactivo correctamente' });
-    } catch (err) {
-        await pool.query('ROLLBACK'); // Si hay algún error, revertimos la transacción
-        console.error(err);
-        res.status(500).json({ error: err.message });
+    if (profesorResult.rows.length === 0) {
+      await pool.query("ROLLBACK");
+      return res
+        .status(404)
+        .json({ error: "Profesor no encontrado o ya desactivado" });
     }
+
+    await pool.query(
+      "UPDATE Profesor SET Estado = false WHERE idProfesor = $1",
+      [idProfesor]
+    );
+
+    await pool.query("COMMIT");
+
+    res.json({ message: "Profesor desactivado correctamente" });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
-
+// Obtener la cantidad de profesores
 export const getProfesorCount = async (req, res) => {
-    try {
-      const query = `
+  try {
+    const result = await pool.query(
+      `
         SELECT COUNT(*) AS total_profesores
         FROM Profesor
         WHERE estado = true;
-      `;
-  
-      const result = await pool.query(query);
-      const totalProfesores = parseInt(result.rows[0].total_profesores, 10);
-  
-      res.status(200).json({
-        total: totalProfesores,
-      });
-    } catch (error) {
-      console.error('Error fetching profesor count:', error);
-      res.status(500).json({ error: 'Error fetching profesor count' });
-    }
-  };
+      `
+    );
+
+    const totalProfesores = parseInt(result.rows[0].total_profesores, 10);
+
+    res.status(200).json({
+      total: totalProfesores,
+    });
+  } catch (error) {
+    console.error("Error al obtener la cantidad de profesores:", error);
+}
+};

@@ -1,147 +1,283 @@
-    import { pool } from "../db.js";
+import { pool } from "../db.js";
+import bcrypt from "bcrypt";
 
-    // Obtener todos los padres de familia
-    export const getPadresFamilia = async (req, res) => {
-        try {
-            const { rows } = await pool.query(`
-                SELECT p.*, pf.idPadre, pf.contrasenia 
-                FROM Persona p 
-                INNER JOIN Padre_De_Familia pf ON p.idPersona = pf.idPersona
-                ORDER BY p.idPersona ASC
-            `);
-            res.json(rows);
-        } catch (error) {
-            res.status(500).json({ error: 'Error al obtener los padres de familia' });
-        }
-    };
+// Obtener todos los padres de familia
+export const getPadresFamilia = async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT *
+      FROM PadreDeFamilia
+      ORDER BY idPadre ASC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al obtener los padres de familia" });
+  }
+};
 
-    // Obtener un padre de familia por ID
-    export const getPadreFamiliaById = async (req, res) => {
-        const { idPadre } = req.params;
+// Obtener un padre de familia por ID
+export const getPadreFamiliaById = async (req, res) => {
+  const { idPadre } = req.params;
 
-        try {
-            const { rows } = await pool.query(`
-                SELECT p.*, pf.idPadre, pf.contrasenia 
-                FROM Persona p
-                INNER JOIN Padre_De_Familia pf ON p.idPersona = pf.idPersona
-                WHERE pf.idPadre = $1 AND p.estado = true
-            `, [idPadre]);
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT *
+      FROM PadreDeFamilia
+      WHERE idPadre = $1
+      `,
+      [idPadre]
+    );
 
-            if (rows.length === 0) {
-                return res.status(404).json({ error: 'Padre de familia no encontrado o inactivo' });
-            }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Padre de familia no encontrado" });
+    }
 
-            res.json(rows[0]);
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ error: 'Error al obtener el padre de familia' });
-        }
-    };
+    const padre = rows[0];
 
-    // Crear un nuevo padre de familia
-    export const createPadreFamilia = async (req, res) => {
-        const { idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento, contrasenia } = req.body;
+    if (!padre.estado) {
+      return res.status(400).json({ error: "Padre de familia está deshabilitado" });
+    }
 
-        if (!idDireccion || !nombres || !apellido_Paterno || !apellido_Materno || !rol || !email || !num_celular || !fecha_de_nacimiento || !contrasenia) {
-            return res.status(400).json({ error: 'Todos los campos son obligatorios' });
-        }
+    res.json(padre);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al obtener el padre de familia" });
+  }
+};
 
-        if (rol !== 'Padre de Familia') {
-            return res.status(400).json({ error: 'El rol debe ser "Padre de Familia"' });
-        }
+// Crear un nuevo padre de familia
+export const createPadreFamilia = async (req, res) => {
+  const {
+    idDireccion,
+    nombres,
+    apellidoPaterno,
+    apellidoMaterno,
+    email,
+    numCelular,
+    fechaDeNacimiento,
+    contrasenia,
+    rol,
+  } = req.body;
 
-        try {
-            const personaResult = await pool.query(
-                `INSERT INTO Persona (idDireccion, Nombres, Apellido_Paterno, Apellido_Materno, Rol, email, Num_Celular, Fecha_De_Nacimiento, Estado) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING idPersona`,
-                [idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento]
-            );
-            const idPersona = personaResult.rows[0].idpersona;
+  try {
+    // Validar campos obligatorios y que no tengan solo espacios en blanco
+    if (
+      !idDireccion ||
+      !nombres?.trim() ||
+      !apellidoPaterno?.trim() ||
+      !apellidoMaterno?.trim() ||
+      !rol?.trim() ||
+      !email?.trim() ||
+      !numCelular?.trim() ||
+      !fechaDeNacimiento ||
+      !contrasenia?.trim()
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Todos los campos son obligatorios y no pueden contener solo espacios en blanco" });
+    }
 
-            const padreResult = await pool.query(
-                `INSERT INTO Padre_De_Familia (idPersona, Contrasenia, Estado) 
-                VALUES ($1, $2, true) RETURNING *`,
-                [idPersona, contrasenia]
-            );
+    // Validar que los nombres y apellidos no contengan caracteres especiales
+    const namePattern = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
+    if (
+      !namePattern.test(nombres) ||
+      !namePattern.test(apellidoPaterno) ||
+      !namePattern.test(apellidoMaterno)
+    ) {
+      return res.status(400).json({ error: "Los nombres y apellidos no deben contener caracteres especiales" });
+    }
 
-            res.status(201).json(padreResult.rows[0]);
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: err.message });
-        }
-    };
+    // Validar que el rol sea "Padre de Familia"
+    if (rol !== "Padre de Familia") {
+      return res.status(400).json({ error: 'El rol debe ser "Padre de Familia"' });
+    }
 
-    // Actualizar un padre de familia
-    export const updatePadreFamilia = async (req, res) => {
-        const { idPadre } = req.params;
-        const { idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento, contrasenia, estado } = req.body;
+    // Validar que el email no esté repetido
+    const emailCheck = await pool.query(
+      "SELECT idPadre FROM PadreDeFamilia WHERE email = $1",
+      [email.trim()]
+    );
+    if (emailCheck.rows.length > 0) {
+      return res
+        .status(400)
+        .json({ error: "El correo electrónico ya está registrado por otro usuario" });
+    }
+    const hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
+    // Insertar en la tabla PadreDeFamilia
+    const padreResult = await pool.query(
+      `INSERT INTO PadreDeFamilia (idDireccion, Nombres, ApellidoPaterno, ApellidoMaterno, email, NumCelular, FechaDeNacimiento, Contrasenia, Rol, Estado) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING *`,
+      [
+        idDireccion,
+        nombres.trim(),
+        apellidoPaterno.trim(),
+        apellidoMaterno.trim(),
+        email.trim(),
+        numCelular.trim(),
+        fechaDeNacimiento,
+        hashedPassword,
+        rol.trim(),
+      ]
+    );
 
-        if (!idDireccion || !nombres || !apellido_Paterno || !apellido_Materno || !rol || !email || !num_celular || !fecha_de_nacimiento || !contrasenia) {
-            return res.status(400).json({ error: 'Todos los campos son obligatorios' });
-        }
+    res.status(201).json(padreResult.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
 
-        if (rol !== 'Padre de Familia') {
-            return res.status(400).json({ error: 'El rol debe ser "Padre de Familia"' });
-        }
+// Actualizar un padre de familia (con validación y preservando valores actuales)
+// Actualizar un padre de familia
+export const updatePadreFamilia = async (req, res) => {
+  const { idPadre } = req.params;
+  const {
+    idDireccion,
+    nombres,
+    apellidoPaterno,
+    apellidoMaterno,
+    email,
+    numCelular,
+    fechaDeNacimiento,
+    contrasenia,
+    estado,
+    rol,
+  } = req.body;
+  // Validar campos obligatorios si se envían
+  if (
+    (idDireccion && idDireccion === "") ||
+    (nombres && !nombres.trim()) ||
+    (apellidoPaterno && !apellidoPaterno.trim()) ||
+    (apellidoMaterno && !apellidoMaterno.trim()) ||
+    (email && !email.trim()) ||
+    (numCelular && !numCelular.trim()) ||
+    (fechaDeNacimiento && !fechaDeNacimiento.trim()) ||
+    (contrasenia && !contrasenia.trim()) ||
+    (rol && !rol.trim())
+  ) {
+    return res.status(400).json({ error: "Todos los campos son obligatorios y no pueden contener solo espacios en blanco" });
+  }
 
-        try {
-            const padreResult = await pool.query(
-                `SELECT idPersona FROM Padre_De_Familia WHERE idPadre = $1`,
-                [idPadre]
-            );
+  // Validar que los nombres y apellidos no contengan caracteres especiales si se proporcionan
+  const namePattern = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
+  if (nombres && !namePattern.test(nombres)) {
+    return res.status(400).json({
+      error: "Los nombres no deben contener caracteres especiales",
+    });
+  }
+  if (apellidoPaterno && !namePattern.test(apellidoPaterno)) {
+    return res.status(400).json({
+      error: "El apellido paterno no debe contener caracteres especiales",
+    });
+  }
+  if (apellidoMaterno && !namePattern.test(apellidoMaterno)) {
+    return res.status(400).json({
+      error: "El apellido materno no debe contener caracteres especiales",
+    });
+  }
 
-            if (padreResult.rows.length === 0) {
-                return res.status(404).json({ error: 'Padre de familia no encontrado' });
-            }
+  // Validar que el rol sea "Padre de Familia"
+  if (rol && rol !== "Padre de Familia") {
+    return res.status(400).json({ error: 'El rol debe ser "Padre de Familia"' });
+  }
 
-            const idPersona = padreResult.rows[0].idpersona;
+  // Validar que el email no esté repetido si se proporciona
+  if (email) {
+    const emailCheck = await pool.query(
+      "SELECT idPadre FROM PadreDeFamilia WHERE email = $1 AND idPadre != $2",
+      [email.trim(), idPadre]
+    );
+    if (emailCheck.rows.length > 0) {
+      return res
+        .status(400)
+        .json({ error: "El correo electrónico ya está registrado por otro usuario" });
+    }
+  }
+  try {
+    const { rows } = await pool.query("SELECT * FROM PadreDeFamilia WHERE idPadre = $1", [idPadre]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Padre de familia no encontrado" });
+    }
+    const currentData = rows[0];
 
-            const personaResult = await pool.query(
-                `UPDATE Persona 
-                SET idDireccion = $1, Nombres = $2, Apellido_Paterno = $3, Apellido_Materno = $4, Rol = $5, email = $6, Num_Celular = $7, Fecha_De_Nacimiento = $8, Estado = $9
-                WHERE idPersona = $10 RETURNING *`,
-                [idDireccion, nombres, apellido_Paterno, apellido_Materno, rol, email, num_celular, fecha_de_nacimiento, estado, idPersona]
-            );
+    let hashedPassword = currentData.contrasenia; // Mantener la contraseña actual si no se proporciona
+    if (contrasenia) {
+      hashedPassword = await bcrypt.hash(contrasenia.trim(), 10); // Cifrar si se proporciona una nueva
+    }
 
-            const updatePadre = await pool.query(
-                `UPDATE Padre_De_Familia 
-                SET Contrasenia = $1
-                WHERE idPadre = $2 RETURNING *`,
-                [contrasenia, idPadre]
-            );
+    await pool.query(
+      `UPDATE PadreDeFamilia 
+        SET idDireccion = $1, Nombres = $2, ApellidoPaterno = $3, ApellidoMaterno = $4, email = $5, NumCelular = $6, FechaDeNacimiento = $7, Contrasenia = $8, Rol = $9, Estado = $10
+        WHERE idPadre = $11`,
+      [
+        idDireccion || currentData.iddireccion,
+        nombres?.trim() || currentData.nombres,
+        apellidoPaterno?.trim() || currentData.apellidopaterno,
+        apellidoMaterno?.trim() || currentData.apellidomaterno,
+        email?.trim() || currentData.email,
+        numCelular?.trim() || currentData.numcelular,
+        fechaDeNacimiento || currentData.fechadenacimiento,
+        hashedPassword, // Usar la nueva contraseña cifrada o mantener la actual
+        rol?.trim() || currentData.rol,
+        estado !== undefined ? estado : currentData.estado,
+        idPadre,
+      ]
+    );
 
-            res.json({ persona: personaResult.rows[0], padre: updatePadre.rows[0] });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: err.message });
-        }
-    };
+    res.json({ message: "Padre de familia actualizado correctamente" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
 
-    // Eliminar un padre de familia
-    export const deletePadreFamilia = async (req, res) => {
-        const { idPadre } = req.params;
+  
 
-        try {
-            await pool.query('BEGIN');
+// Eliminar un padre de familia (desactivar)
+export const deletePadreFamilia = async (req, res) => {
+  const { idPadre } = req.params;
 
-            const padreResult = await pool.query('SELECT idPersona FROM Padre_De_Familia WHERE idPadre = $1', [idPadre]);
+  try {
+    await pool.query("BEGIN");
 
-            if (padreResult.rows.length === 0) {
-                await pool.query('ROLLBACK');
-                return res.status(404).json({ error: 'Padre de familia no encontrado' });
-            }
+    const padreResult = await pool.query(
+      "SELECT idPadre FROM PadreDeFamilia WHERE idPadre = $1 AND Estado = true",
+      [idPadre]
+    );
 
-            const idPersona = padreResult.rows[0].idpersona;
+    if (padreResult.rows.length === 0) {
+      await pool.query("ROLLBACK");
+      return res
+        .status(404)
+        .json({ error: "Padre de familia no encontrado o ya desactivado" });
+    }
 
-            await pool.query('UPDATE Padre_De_Familia SET Estado = false WHERE idPadre = $1', [idPadre]);
-            await pool.query('UPDATE Persona SET Estado = false WHERE idPersona = $1', [idPersona]);
+    await pool.query(
+      "UPDATE PadreDeFamilia SET Estado = false WHERE idPadre = $1",
+      [idPadre]
+    );
 
-            await pool.query('COMMIT');
+    await pool.query("COMMIT");
 
-            res.json({ message: 'Padre de familia inactivado correctamente' });
-        } catch (err) {
-            await pool.query('ROLLBACK');
-            console.error(err);
-            res.status(500).json({ error: err.message });
-        }
-    };
+    res.json({ message: "Padre de familia desactivado correctamente" });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+
+// Obtener todos los padres de familia
+export const getDatesPadresFamilia = async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT idPadre, nombres, apellidoPaterno, apellidoMaterno FROM PadreDeFamilia ORDER BY idPadre ASC`);
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al obtener los padres de familia" });
+  }
+};

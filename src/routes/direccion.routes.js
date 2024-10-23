@@ -6,7 +6,7 @@ const router = Router();
 
 
 // Ruta para obtener todas las direcciones
-router.get('/direcciones', getDirecciones);
+router.get('/obtener/direcciones', getDirecciones);
 
 export default router
 
