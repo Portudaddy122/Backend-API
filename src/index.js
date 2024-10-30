@@ -11,6 +11,9 @@ import PsicologoRoutes from './routes/psicologo.routes.js';
 import colasRoutes from './routes/Colas/colas.routes.js';
 import cursosRoutes from './routes/curso.routes.js';
 import loginRoutes from './routes/login.routes.js';
+import motivosRoutes from './routes/motivo.routes.js';
+import horarioRoutes from './routes/horario.routes.js';
+import materiaRoutes from './routes/materia.routes.js';
 import dotenv from 'dotenv';
 
 dotenv.config(); // Cargar las variables de entorno
@@ -32,6 +35,9 @@ app.use(PsicologoRoutes);
 app.use(colasRoutes);
 app.use(cursosRoutes);
 app.use(loginRoutes);
+app.use(motivosRoutes)
+app.use(horarioRoutes)
+app.use(materiaRoutes)
 
 app.listen(PORT);
 console.log(`Servidor corriendo en el puerto`, PORT);

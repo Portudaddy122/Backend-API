@@ -5,7 +5,7 @@ export const getDirecciones = async (req, res) => {
     try {
         const { rows } = await pool.query(`
             SELECT *
-            FROM Direccion
+            FROM Direccion WHERE estado = 'true'
             ORDER BY idDireccion ASC
         `);
         res.json(rows);

@@ -6,7 +6,7 @@ export const getPsicologos = async (req, res) => {
   try {
     const { rows } = await pool.query(`
             SELECT *
-            FROM psicologo
+            FROM psicologo WHERE estado = 'true'
             ORDER BY idPsicologo ASC
         `);
     res.json(rows);
@@ -106,34 +106,18 @@ export const createPsicologo = async (req, res) => {
       fechaDeNacimiento,
       contrasenia,
       rol,
+      idhorario
     } = req.body;
   
     try {
-      // Validar que ningún campo esté vacío o contenga solo espacios en blanco
-      if (
-        !idDireccion ||
-        !nombres?.trim() ||
-        !apellidoPaterno?.trim() ||
-        !apellidoMaterno?.trim() ||
-        !email?.trim() ||
-        !numCelular?.trim() ||
-        !fechaDeNacimiento ||
-        !contrasenia?.trim() ||
-        !rol?.trim()
-      ) {
+      // Validación de campos obligatorios
+      if (!idDireccion || !nombres?.trim() || !apellidoPaterno?.trim() || !apellidoMaterno?.trim() || !email?.trim() || !numCelular?.trim() || !fechaDeNacimiento || !contrasenia?.trim() || !rol?.trim() || !idhorario) {
         return res.status(400).json({ error: "Todos los campos son obligatorios y no pueden contener solo espacios en blanco" });
       }
   
-      // Validar que los nombres y apellidos no contengan caracteres especiales
       const namePattern = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
-      if (
-        !namePattern.test(nombres) ||
-        !namePattern.test(apellidoPaterno) ||
-        !namePattern.test(apellidoMaterno)
-      ) {
-        return res.status(400).json({
-          error: "Los nombres y apellidos no deben contener caracteres especiales",
-        });
+      if (!namePattern.test(nombres) || !namePattern.test(apellidoPaterno) || !namePattern.test(apellidoMaterno)) {
+        return res.status(400).json({ error: "Los nombres y apellidos no deben contener caracteres especiales" });
       }
   
       // Validar que el rol sea "Psicologo"
@@ -142,33 +126,18 @@ export const createPsicologo = async (req, res) => {
       }
   
       // Validar que el email no esté repetido
-      const emailCheck = await pool.query(
-        "SELECT idPsicologo FROM Psicologo WHERE email = $1",
-        [email.trim()]
-      );
+      const emailCheck = await pool.query("SELECT idPsicologo FROM Psicologo WHERE email = $1", [email.trim()]);
       if (emailCheck.rows.length > 0) {
-        return res.status(400).json({
-          error: "El correo electrónico ya está registrado por otro usuario",
-        });
+        return res.status(400).json({ error: "El correo electrónico ya está registrado por otro usuario" });
       }
+  
       const hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
-
   
       // Insertar en la tabla Psicologo
       const psicologoResult = await pool.query(
-        `INSERT INTO Psicologo (idDireccion, Nombres, ApellidoPaterno, ApellidoMaterno, email, NumCelular, FechaDeNacimiento, Contrasenia, Rol, Estado) 
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING *`,
-        [
-          idDireccion,
-          nombres.trim(),
-          apellidoPaterno.trim(),
-          apellidoMaterno.trim(),
-          email.trim(),
-          numCelular.trim(),
-          fechaDeNacimiento,
-          hashedPassword,
-          rol.trim(),
-        ]
+        `INSERT INTO Psicologo (idDireccion, Nombres, ApellidoPaterno, ApellidoMaterno, email, NumCelular, FechaDeNacimiento, Contrasenia, Rol, Estado, idhorario) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10) RETURNING *`,
+        [idDireccion, nombres.trim(), apellidoPaterno.trim(), apellidoMaterno.trim(), email.trim(), numCelular.trim(), fechaDeNacimiento, hashedPassword, rol.trim(), idhorario]
       );
   
       res.status(201).json(psicologoResult.rows[0]);
@@ -178,8 +147,8 @@ export const createPsicologo = async (req, res) => {
     }
   };
   
-// Actualizar un psicólogo
-export const updatePsicologo = async (req, res) => {
+  // Actualizar un psicólogo
+  export const updatePsicologo = async (req, res) => {
     const { idPsicologo } = req.params;
     const {
       idDireccion,
@@ -191,6 +160,7 @@ export const updatePsicologo = async (req, res) => {
       fechaDeNacimiento,
       estado,
       contrasenia,
+      idhorario
     } = req.body;
   
     try {
@@ -200,26 +170,27 @@ export const updatePsicologo = async (req, res) => {
       }
       const currentData = rows[0];
   
-      let hashedPassword = currentData.contrasenia; // Mantener la contraseña actual si no se proporciona
+      let hashedPassword = currentData.contrasenia;
       if (contrasenia) {
-        hashedPassword = await bcrypt.hash(contrasenia.trim(), 10); // Cifrar si se proporciona una nueva
+        hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
       }
   
       await pool.query(
         `UPDATE psicologo 
-           SET idDireccion = $1, nombres = $2, apellidoPaterno = $3, apellidoMaterno = $4, email = $5, numCelular = $6, fechaDeNacimiento = $7, estado = $8, contrasenia = $9
-           WHERE idPsicologo = $10`,
+         SET idDireccion = $1, nombres = $2, apellidoPaterno = $3, apellidoMaterno = $4, email = $5, numCelular = $6, fechaDeNacimiento = $7, estado = $8, contrasenia = $9, idhorario = $10
+         WHERE idPsicologo = $11`,
         [
           idDireccion || currentData.iddireccion,
-          nombres.trim() || currentData.nombres,
-          apellidoPaterno.trim() || currentData.apellidopaterno,
-          apellidoMaterno.trim() || currentData.apellidomaterno,
-          email.trim() || currentData.email,
-          numCelular.trim() || currentData.numcelular,
+          nombres?.trim() || currentData.nombres,
+          apellidoPaterno?.trim() || currentData.apellidopaterno,
+          apellidoMaterno?.trim() || currentData.apellidomaterno,
+          email?.trim() || currentData.email,
+          numCelular?.trim() || currentData.numcelular,
           fechaDeNacimiento || currentData.fechadenacimiento,
           estado !== undefined ? estado : currentData.estado,
-          hashedPassword, // Usar la nueva contraseña cifrada o mantener la actual
-          idPsicologo,
+          hashedPassword,
+          idhorario || currentData.idhorario,
+          idPsicologo
         ]
       );
   

@@ -6,7 +6,7 @@ export const getPadresFamilia = async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT *
-      FROM PadreDeFamilia
+      FROM PadreDeFamilia WHERE estado = 'true'
       ORDER BY idPadre ASC
     `);
     res.json(rows);

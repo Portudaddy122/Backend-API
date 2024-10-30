@@ -37,7 +37,7 @@ export const loginUser = async (req, res) => {
     const psyResult = await pool.query("SELECT * FROM psicologo WHERE email = $1", [email]);
     if (psyResult.rows.length > 0) {
       user = psyResult.rows[0];
-      userType = "Psicólogo";
+      userType = "Psicologo";
       userIdColumn = "idpsicologo";
     }
 
@@ -60,7 +60,7 @@ export const loginUser = async (req, res) => {
       return res.status(401).json({ message: "Contraseña incorrecta" });
     }
 
-    // Generar el token JWT
+    //token JWT
     const token = jwt.sign(
       {
         id: user[userIdColumn],
@@ -68,7 +68,7 @@ export const loginUser = async (req, res) => {
         email: user.email
       },
       JWT_SECRET,
-      { expiresIn: "30 minutes" }
+      { expiresIn: "30m" }
     );
 
     res.json({

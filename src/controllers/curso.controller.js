@@ -5,7 +5,7 @@ export const getCursos = async (req, res) => {
   try {
     const { rows } = await pool.query(`
             SELECT *
-            FROM Curso
+            FROM Curso WHERE estado = 'true'
             ORDER BY idCurso ASC
         `);
     res.json(rows);
