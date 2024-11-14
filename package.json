@@ -13,10 +13,17 @@
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.21.0",
+    "express": "^4.21.1",
+    "html-docx-js": "^0.3.1",
+    "html-pdf": "^3.0.1",
+    "jsdom": "^25.0.1",
     "jsonwebtoken": "^9.0.2",
+    "jspdf": "^2.5.2",
     "jwt-decode": "^4.0.0",
-    "pg": "^8.13.0"
+    "nodemailer": "^6.9.16",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.13.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

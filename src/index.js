@@ -14,7 +14,11 @@ import loginRoutes from './routes/login.routes.js';
 import motivosRoutes from './routes/motivo.routes.js';
 import horarioRoutes from './routes/horario.routes.js';
 import materiaRoutes from './routes/materia.routes.js';
+import correoRoutes from './routes/correo.routes.js'
+import documentRoutes from './routes/document.routes.js'
 import dotenv from 'dotenv';
+
+
 
 dotenv.config(); // Cargar las variables de entorno
 
@@ -35,9 +39,11 @@ app.use(PsicologoRoutes);
 app.use(colasRoutes);
 app.use(cursosRoutes);
 app.use(loginRoutes);
-app.use(motivosRoutes)
-app.use(horarioRoutes)
-app.use(materiaRoutes)
+app.use(motivosRoutes);
+app.use(horarioRoutes);
+app.use(materiaRoutes);
+app.use(correoRoutes);
+app.use(documentRoutes);
 
 app.listen(PORT);
 console.log(`Servidor corriendo en el puerto`, PORT);

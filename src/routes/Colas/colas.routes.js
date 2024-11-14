@@ -1,5 +1,5 @@
 import Router from 'express';
-import { agendarEntrevista, obtenerColaEsperaPrioridadFIFO, obtenerListaEntrevista } from '../../LogicaDeColas/teoriaDeCola.Controller.js';
+import { agendarEntrevista, eliminarEntrevista, obtenerColaEsperaPrioridadFIFO, obtenerListaEntrevista, obtenerListaEntrevistaPorRango } from '../../LogicaDeColas/teoriaDeCola.Controller.js';
 
 const router = Router();
 
@@ -10,6 +10,13 @@ router.post('/agendarEntrevista', agendarEntrevista);
 router.get('/colaEspera', obtenerColaEsperaPrioridadFIFO);
 
 router.get('/listaEntrevistas', obtenerListaEntrevista);
+
+//borrado logico
+router.put('/eliminarEntrevista/:idReservarEntrevista', eliminarEntrevista);
+
+//Entrevista por rango 
+router.post('/obtener/entrevistas/rango', obtenerListaEntrevistaPorRango);
+
 
 
 export default router;
