@@ -17,4 +17,4 @@ export const verifyToken = (req, res, next) => {
     return res.status(401).json({ message: 'Token no válido' });
   }
 };
-//Endurecer las configuraciones de la base de datos hardening
+

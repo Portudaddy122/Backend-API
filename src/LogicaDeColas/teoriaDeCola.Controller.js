@@ -257,39 +257,57 @@ export const eliminarEntrevista = async (req, res) => {
     res.status(500).json({ error: "Error al cambiar el estado de la entrevista" });
   }
 };
+export const obtenerListaEntrevistaPorRango = async (req, res) => {
+  const { startDate, endDate } = req.body;
+  try {
+    const citas = await pool.query(
+      `
+      SELECT 
+        re.idreservarentrevista,
+        TO_CHAR(re.fecha, 'YYYY-MM-DD') AS fecha,
+        re.descripcion,
+        TO_CHAR(re.horafinentrevista, 'HH24:MI:SS') AS horainicio,
+        p.nombres,
+        p.apellidopaterno,
+        p.apellidomaterno,
+        p.email,
+        re.estado,
+        CASE 
+          WHEN re.estado = true THEN 'Completado'
+          WHEN re.estado = false THEN 'Cancelado'
+          ELSE 'Pendiente'
+        END AS accion,
+        -- Agregamos el campo horafinentrevista para calcular nuevaHorafinEntrevista
+        re.horafinentrevista
+      FROM reservarentrevista re
+      JOIN padredefamilia p ON re.idpadre = p.idpadre
+      WHERE re.fecha BETWEEN $1 AND $2
+      ORDER BY re.fecha ASC
+      `,
+      [startDate, endDate]
+    );
 
-  export const obtenerListaEntrevistaPorRango = async (req, res) => {
-    const { startDate, endDate } = req.body;
-    try {
-      const citas = await pool.query(
-        `
-        SELECT 
-          re.idreservarentrevista,
-          TO_CHAR(re.fecha, 'YYYY-MM-DD') AS fecha,
-          re.descripcion,
-          TO_CHAR(re.horafinentrevista, 'HH24:MI:SS') AS horainicio,
-          p.nombres,
-          p.apellidopaterno,
-          p.apellidomaterno,
-          p.email,
-          re.estado,
-          CASE 
-            WHEN re.estado = true THEN 'Completado'
-            WHEN re.estado = false THEN 'Cancelado'
-            ELSE 'Pendiente'
-          END AS accion
-        FROM reservarentrevista re
-        JOIN padredefamilia p ON re.idpadre = p.idpadre
-        WHERE re.fecha BETWEEN $1 AND $2
-        ORDER BY re.fecha ASC
-        `,
-        [startDate, endDate]
-      );
-  
-      res.status(200).json(citas.rows);
-    } catch (error) {
-      console.error("Error al obtener la lista de entrevistas:", error.message);
-      res.status(500).json({ error: `Error al obtener la lista de entrevistas: ${error.message}` });
-    }
-  };
-  
+    // Procesar los resultados para incluir nuevaHorafinEntrevista
+    const duracionAtencion = 25; // Puedes ajustar esto según la prioridad si es necesario
+
+    const citasConNuevaHora = citas.rows.map((cita) => {
+      // Si horafinentrevista es null, no se puede calcular la nueva hora
+      if (!cita.horafinentrevista) {
+        return { ...cita, nuevaHorafinEntrevista: 'No disponible' };
+      }
+
+      const [horas, minutos] = cita.horafinentrevista.split(":").map(Number);
+      const nuevaHoraFinMinutos = horas * 60 + minutos + duracionAtencion;
+      const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
+      const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
+      const nuevaHorafinEntrevista = `${String(nuevaHoraFinHoras).padStart(2, '0')}:${String(nuevaHoraFinRestantesMinutos).padStart(2, '0')}:00`;
+
+      return { ...cita, nuevaHorafinEntrevista };
+    });
+
+    res.status(200).json(citasConNuevaHora);
+  } catch (error) {
+    console.error("Error al obtener la lista de entrevistas:", error.message);
+    res.status(500).json({ error: `Error al obtener la lista de entrevistas: ${error.message}` });
+  }
+};
