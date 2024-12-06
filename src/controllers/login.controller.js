@@ -18,7 +18,7 @@ export const loginUser = async (req, res) => {
     let userIdColumn;
 
     // Buscar usuario en tabla de administrador
-    const adminResult = await pool.query("SELECT * FROM administrador WHERE email = $1", [email]);
+    const adminResult = await pool.query("SELECT * FROM administrador WHERE email = $1 AND estado = true", [email]);
     if (adminResult.rows.length > 0) {
       user = adminResult.rows[0];
       userType = "Administrador";
@@ -26,7 +26,7 @@ export const loginUser = async (req, res) => {
     }
 
     // Buscar usuario en tabla de profesor
-    const profResult = await pool.query("SELECT * FROM profesor WHERE email = $1", [email]);
+    const profResult = await pool.query("SELECT * FROM profesor WHERE email = $1 AND estado = true", [email]);
     if (profResult.rows.length > 0) {
       user = profResult.rows[0];
       userType = "Profesor";
@@ -34,7 +34,7 @@ export const loginUser = async (req, res) => {
     }
 
     // Buscar usuario en tabla de psicólogo
-    const psyResult = await pool.query("SELECT * FROM psicologo WHERE email = $1", [email]);
+    const psyResult = await pool.query("SELECT * FROM psicologo WHERE email = $1 AND estado = true", [email]);
     if (psyResult.rows.length > 0) {
       user = psyResult.rows[0];
       userType = "Psicologo";
@@ -42,7 +42,7 @@ export const loginUser = async (req, res) => {
     }
 
     // Buscar usuario en tabla de padre de familia
-    const padreResult = await pool.query("SELECT * FROM padredefamilia WHERE email = $1", [email]);
+    const padreResult = await pool.query("SELECT * FROM padredefamilia WHERE email = $1 AND estado = true", [email]);
     if (padreResult.rows.length > 0) {
       user = padreResult.rows[0];
       userType = "Padre de Familia";
@@ -88,3 +88,6 @@ export const loginUser = async (req, res) => {
     res.status(500).json({ message: "Error en el servidor" });
   }
 };
+
+
+

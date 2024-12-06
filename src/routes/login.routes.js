@@ -6,4 +6,5 @@ const router = Router();
 // Asegúrate de que esta ruta está bien definida
 router.post('/login', loginUser);
 
+
 export default router;

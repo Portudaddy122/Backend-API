@@ -151,45 +151,56 @@ export const createPsicologo = async (req, res) => {
   export const updatePsicologo = async (req, res) => {
     const { idPsicologo } = req.params;
     const {
-      idDireccion,
+      iddireccion,
       nombres,
-      apellidoPaterno,
-      apellidoMaterno,
+      apellidopaterno,
+      apellidomaterno,
       email,
-      numCelular,
-      fechaDeNacimiento,
+      numcelular,
+      fechadenacimiento,
       estado,
       contrasenia,
       idhorario
     } = req.body;
   
     try {
-      const { rows } = await pool.query("SELECT * FROM psicologo WHERE idPsicologo = $1", [idPsicologo]);
+      // Verificar si el psicólogo existe
+      const { rows } = await pool.query("SELECT * FROM psicologo WHERE idpsicologo = $1", [idPsicologo]);
       if (rows.length === 0) {
         return res.status(404).json({ error: "Psicólogo no encontrado" });
       }
       const currentData = rows[0];
   
+      // Cifrar la contraseña solo si se ha proporcionado una nueva
       let hashedPassword = currentData.contrasenia;
-      if (contrasenia) {
+      if (contrasenia && contrasenia !== currentData.contrasenia) {
         hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
       }
   
       await pool.query(
         `UPDATE psicologo 
-         SET idDireccion = $1, nombres = $2, apellidoPaterno = $3, apellidoMaterno = $4, email = $5, numCelular = $6, fechaDeNacimiento = $7, estado = $8, contrasenia = $9, idhorario = $10
-         WHERE idPsicologo = $11`,
+         SET iddireccion = COALESCE($1, iddireccion), 
+             nombres = COALESCE($2, nombres), 
+             apellidopaterno = COALESCE($3, apellidopaterno), 
+             apellidomaterno = COALESCE($4, apellidomaterno), 
+             email = COALESCE($5, email), 
+             numcelular = COALESCE($6, numcelular), 
+             fechadenacimiento = COALESCE($7, fechadenacimiento), 
+             estado = COALESCE($8, estado), 
+             contrasenia = COALESCE($9, contrasenia), 
+             idhorario = COALESCE($10, idhorario)
+         WHERE idpsicologo = $11`,
         [
-          idDireccion || currentData.iddireccion,
-          nombres?.trim() || currentData.nombres,
-          apellidoPaterno?.trim() || currentData.apellidopaterno,
-          apellidoMaterno?.trim() || currentData.apellidomaterno,
-          email?.trim() || currentData.email,
-          numCelular?.trim() || currentData.numcelular,
-          fechaDeNacimiento || currentData.fechadenacimiento,
-          estado !== undefined ? estado : currentData.estado,
+          iddireccion,
+          nombres?.trim(),
+          apellidopaterno?.trim(),
+          apellidomaterno?.trim(),
+          email?.trim(),
+          numcelular?.trim(),
+          fechadenacimiento,
+          estado,
           hashedPassword,
-          idhorario || currentData.idhorario,
+          idhorario,
           idPsicologo
         ]
       );
@@ -200,6 +211,7 @@ export const createPsicologo = async (req, res) => {
       res.status(500).json({ error: err.message });
     }
   };
+  
   
 // Eliminar (desactivar) un psicólogo
 export const deletePsicologo = async (req, res) => {

@@ -133,46 +133,55 @@ export const createAdministrador = async (req, res) => {
 export const updateAdministrador = async (req, res) => {
   const { idAdministrador } = req.params;
   const {
-    idDireccion,
+    iddireccion,
     nombres,
-    apellidoPaterno,
-    apellidoMaterno,
+    apellidopaterno,
+    apellidomaterno,
     email,
-    numCelular,
-    fechaDeNacimiento,
+    numcelular,
+    fechadenacimiento,
     contrasenia,
     estado,
     rol,
   } = req.body;
 
   try {
-    const { rows } = await pool.query("SELECT * FROM Administrador WHERE idAdministrador = $1", [idAdministrador]);
+    const { rows } = await pool.query("SELECT * FROM administrador WHERE idadministrador = $1", [idAdministrador]);
     if (rows.length === 0) {
       return res.status(404).json({ error: "Administrador no encontrado" });
     }
     const currentData = rows[0];
 
-    let hashedPassword = currentData.contrasenia; // Mantener la contraseña actual si no se proporciona
-    if (contrasenia) {
-      hashedPassword = await bcrypt.hash(contrasenia.trim(), 10); // Cifrar si se proporciona una nueva
+    let hashedPassword = currentData.contrasenia;
+    if (contrasenia && contrasenia !== currentData.contrasenia) {
+      hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
     }
 
     await pool.query(
-      `UPDATE Administrador 
-        SET idDireccion = $1, Nombres = $2, ApellidoPaterno = $3, ApellidoMaterno = $4, email = $5, NumCelular = $6, FechaDeNacimiento = $7, Contrasenia = $8, Rol = $9, Estado = $10
-        WHERE idAdministrador = $11`,
+      `UPDATE administrador 
+       SET iddireccion = COALESCE($1, iddireccion), 
+           nombres = COALESCE($2, nombres), 
+           apellidopaterno = COALESCE($3, apellidopaterno), 
+           apellidomaterno = COALESCE($4, apellidomaterno), 
+           email = COALESCE($5, email), 
+           numcelular = COALESCE($6, numcelular), 
+           fechadenacimiento = COALESCE($7, fechadenacimiento), 
+           contrasenia = COALESCE($8, contrasenia), 
+           estado = COALESCE($9, estado), 
+           rol = COALESCE($10, rol)
+       WHERE idadministrador = $11`,
       [
-        idDireccion || currentData.iddireccion,
-        nombres?.trim() || currentData.nombres,
-        apellidoPaterno?.trim() || currentData.apellidopaterno,
-        apellidoMaterno?.trim() || currentData.apellidomaterno,
-        email?.trim() || currentData.email,
-        numCelular?.trim() || currentData.numcelular,
-        fechaDeNacimiento || currentData.fechadenacimiento,
-        hashedPassword, // Usar la nueva contraseña cifrada o mantener la actual
-        rol?.trim() || currentData.rol,
-        estado !== undefined ? estado : currentData.estado,
-        idAdministrador,
+        iddireccion,
+        nombres?.trim(),
+        apellidopaterno?.trim(),
+        apellidomaterno?.trim(),
+        email?.trim(),
+        numcelular?.trim(),
+        fechadenacimiento,
+        hashedPassword,
+        estado,
+        rol,
+        idAdministrador
       ]
     );
 
@@ -182,6 +191,7 @@ export const updateAdministrador = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 

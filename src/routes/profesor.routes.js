@@ -1,5 +1,5 @@
 import Router from 'express';
-import {createProfesor, getProfesores, getProfesorById, updateProfesor, deleteProfesor, getProfesorCount } from '../controllers/profesor.controller.js';
+import {createProfesor, getProfesores, getProfesorById, updateProfesor, deleteProfesor, getProfesorCount, getProfesoresConHorarios } from '../controllers/profesor.controller.js';
 
 
 const router = Router();
@@ -20,6 +20,9 @@ router.put('/actualizar/profesor/:idProfesor', updateProfesor );
 router.delete('/eliminar/profesor/:idProfesor', deleteProfesor);
 
 router.get('/obtener/cantidad/profesores', getProfesorCount);
+
+router.get('/obtener/profesoresHorarios', getProfesoresConHorarios);
+
 
 
 export default router;

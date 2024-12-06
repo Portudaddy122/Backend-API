@@ -4,16 +4,29 @@ import { pool } from "../db.js";
 export const getEstudiantes = async (req, res) => {
   try {
     const { rows } = await pool.query(`
-            SELECT *
-            FROM estudiante WHERE estado = 'true'
-            ORDER BY idEstudiante ASC
-        `);
+      SELECT 
+        e.idEstudiante,
+        e.nombres,
+        e.apellidoPaterno,
+        e.apellidoMaterno,
+        e.idCurso,
+        c.nombreCurso,
+        c.nivel,
+        c.paralelo,
+        e.estado
+      FROM estudiante e
+      JOIN curso c ON e.idCurso = c.idCurso
+      WHERE e.estado = true
+      ORDER BY e.idEstudiante ASC
+    `);
+
     res.json(rows);
   } catch (error) {
-    console.error(error);
+    console.error("Error al obtener estudiantes:", error);
     res.status(500).json({ error: "Error al obtener los estudiantes" });
   }
 };
+
 
 // Obtener un estudiante por ID
 export const getEstudianteById = async (req, res) => {
@@ -101,45 +114,33 @@ export const createEstudiante = async (req, res) => {
 // Actualizar un estudiante
 export const updateEstudiante = async (req, res) => {
   const { idEstudiante } = req.params;
-
-  const validationError = validateEstudianteFields(req, res);
-  if (validationError) return validationError;
-
-  const { idPadre, idCurso, nombres, apellidoPaterno, apellidoMaterno, fechaNacimiento, estado } = req.body;
+  const { idpadre, idcurso, nombres, apellidopaterno, apellidomaterno, fechadenacimiento, estado } = req.body;
 
   try {
-    const { rows } = await pool.query("SELECT * FROM estudiante WHERE idEstudiante = $1", [idEstudiante]);
-
+    const { rows } = await pool.query("SELECT * FROM estudiante WHERE idestudiante = $1", [idEstudiante]);
     if (rows.length === 0) {
       return res.status(404).json({ error: "Estudiante no encontrado" });
     }
-
     const currentData = rows[0];
-
-    const updatedData = {
-      idPadre: idPadre || currentData.idPadre, // Si no se envía, mantener el valor actual
-      idCurso: idCurso || currentData.idCurso,
-      nombres: nombres?.trim() || currentData.nombres,
-      apellidoPaterno: apellidoPaterno?.trim() || currentData.apellidoPaterno,
-      apellidoMaterno: apellidoMaterno?.trim() || currentData.apellidoMaterno,
-      fechaNacimiento: fechaNacimiento || currentData.fechaNacimiento,
-      estado: estado !== undefined ? estado : currentData.estado, // Mantener el estado actual si no se envía
-      rol: 'Estudiante' // Asegurarse de que el rol siempre sea 'Estudiante'
-    };
 
     await pool.query(
       `UPDATE estudiante 
-       SET idPadre = $1, idCurso = $2, nombres = $3, apellidoPaterno = $4, apellidoMaterno = $5, fechaNacimiento = $6, estado = $7, rol = $8
-       WHERE idEstudiante = $9`,
+       SET idpadre = COALESCE($1, idpadre), 
+           idcurso = COALESCE($2, idcurso), 
+           nombres = COALESCE($3, nombres), 
+           apellidopaterno = COALESCE($4, apellidopaterno), 
+           apellidomaterno = COALESCE($5, apellidomaterno), 
+           fechanacimiento = COALESCE($6, fechanacimiento), 
+           estado = COALESCE($7, estado)
+       WHERE idestudiante = $8`,
       [
-        updatedData.idPadre,
-        updatedData.idCurso,
-        updatedData.nombres,
-        updatedData.apellidoPaterno,
-        updatedData.apellidoMaterno,
-        updatedData.fechaNacimiento,
-        updatedData.estado,
-        updatedData.rol,
+        idpadre,
+        idcurso,
+        nombres?.trim(),
+        apellidopaterno?.trim(),
+        apellidomaterno?.trim(),
+        fechadenacimiento,
+        estado,
         idEstudiante
       ]
     );
@@ -150,6 +151,7 @@ export const updateEstudiante = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 // Eliminar (desactivar) un estudiante

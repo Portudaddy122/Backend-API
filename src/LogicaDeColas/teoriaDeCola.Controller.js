@@ -1,6 +1,6 @@
 import { pool } from "../db.js";
 
-let ultimaHoraAcumulada = null; // Variable global para almacenar la última hora acumulada
+let ultimaHoraAcumulada = null;
 
 export const agendarEntrevista = async (req, res) => {
   const {
@@ -10,15 +10,17 @@ export const agendarEntrevista = async (req, res) => {
     fecha,
     descripcion,
     idMotivo,
-    idMateria,
   } = req.body;
 
   try {
-    console.log("=== Iniciando agendamiento de entrevista ===");
-    console.log("Datos recibidos:", req.body);
 
-    // Validar campos requeridos
-    if (!idProfesor || !idPsicologo || !idPadre || !fecha || !descripcion || !idMotivo || !idMateria) {
+    // Validar que al menos uno de los IDs (Profesor o Psicologo) sea proporcionado, pero no ambos
+    if ((!idProfesor && !idPsicologo) || (idProfesor && idPsicologo)) {
+      return res.status(400).json({ error: "Debes seleccionar un profesor o un psicólogo, pero no ambos." });
+    }
+
+    // Validar que los campos requeridos no sean nulos
+    if (!idPadre || !fecha || !descripcion || !idMotivo) {
       return res.status(400).json({ error: "Todos los campos son obligatorios" });
     }
 
@@ -39,24 +41,152 @@ export const agendarEntrevista = async (req, res) => {
     const duracionAtencion = tipoprioridad.toLowerCase() === 'alta' ? 25 :
                              tipoprioridad.toLowerCase() === 'media' ? 20 : 10;
 
-    console.log("Duración de atención según prioridad:", duracionAtencion);
 
-    // Obtener el horario del profesor
-    const horarioProfesor = await pool.query(
-      `SELECT horainicio::text, horafin::text 
-       FROM horario 
-       WHERE idmateria = $1 AND estado = TRUE`,
-      [idMateria]
-    );
 
-    if (horarioProfesor.rows.length === 0) {
-      return res.status(400).json({ error: "No se encontró un horario para esta materia" });
+    // Obtener el horario y estado del usuario (profesor o psicólogo)
+    let idhorario, estadoUsuario;
+    if (idProfesor) {
+      const profesorData = await pool.query(
+        `SELECT idhorario, estado FROM Profesor WHERE idprofesor = $1`,
+        [idProfesor]
+      );
+      if (profesorData.rows.length === 0 || !profesorData.rows[0].estado) {
+        return res.status(400).json({ error: "Profesor no encontrado o no está activo" });
+      }
+      idhorario = profesorData.rows[0].idhorario;
+    } else if (idPsicologo) {
+      const psicologoData = await pool.query(
+        `SELECT idhorario, estado FROM Psicologo WHERE idpsicologo = $1`,
+        [idPsicologo]
+      );
+      if (psicologoData.rows.length === 0 || !psicologoData.rows[0].estado) {
+        return res.status(400).json({ error: "Psicólogo no encontrado o no está activo" });
+      }
+      idhorario = psicologoData.rows[0].idhorario;
     }
 
-    const { horainicio, horafin } = horarioProfesor.rows[0];
-    console.log(`Horario del profesor: Inicio - ${horainicio}, Fin - ${horafin}`);
+    // Obtener `horainicio` y `horafin` usando `idhorario`
+    const horarioData = await pool.query(
+      `SELECT horainicio::text, horafin::text 
+       FROM horario 
+       WHERE idhorario = $1 AND estado = TRUE`,
+      [idhorario]
+    );
 
-    // Consultar última horafinentrevista para la fecha seleccionada
+    if (horarioData.rows.length === 0) {
+      return res.status(400).json({ error: "No se encontró un horario para este usuario" });
+    }
+
+    const { horainicio, horafin } = horarioData.rows[0];
+
+
+    // Consultar la última `horafinentrevista` para la fecha seleccionada
+    let horafinentrevista;
+    const ultimaEntrevistaResult = await pool.query(
+      `SELECT horafinentrevista::text 
+       FROM reservarentrevista 
+       WHERE (idprofesor = $1 OR idpsicologo = $2) AND fecha = $3 AND estado IS NULL
+       ORDER BY horafinentrevista DESC LIMIT 1`,
+      [idProfesor || null, idPsicologo || null, fecha]
+    );
+
+    if (ultimaEntrevistaResult.rows.length === 0) {
+      horafinentrevista = horainicio;
+
+    } else {
+      horafinentrevista = ultimaEntrevistaResult.rows[0].horafinentrevista;
+
+    }
+
+    // Calcular la nueva `horafinentrevista`
+    let [horas, minutos] = horafinentrevista.split(":").map(Number);
+    let nuevaHoraFinMinutos = horas * 60 + minutos + duracionAtencion;
+    const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
+    const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
+    const nuevaHorafinEntrevista = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
+
+    // Validar si la nueva hora excede el horario permitido
+    if (nuevaHorafinEntrevista > horafin) {
+      return res.status(400).json({
+        error: "No hay espacio disponible para agendar una nueva entrevista.",
+        details: {
+          horainicio,
+          horafin,
+          nuevaHorafinEntrevista,
+          motivo: "La duración de atención excede el horario disponible del profesor.",
+        },
+      });
+    }
+    
+    
+
+    // Insertar la nueva entrevista en la base de datos
+    const nuevaEntrevista = await pool.query(
+      `INSERT INTO reservarentrevista 
+        (idprofesor, idpsicologo, idpadre, fecha, descripcion, idmotivo, horafinentrevista, estado) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NULL) 
+      RETURNING horafinentrevista`,
+      [idProfesor || null, idPsicologo || null, idPadre, fecha, descripcion, idMotivo, nuevaHorafinEntrevista]
+    );
+
+    ultimaHoraAcumulada = nuevaEntrevista.rows[0].horafinentrevista;
+    res.status(201).json({
+      success: "Entrevista agendada correctamente",
+      horafinentrevista: ultimaHoraAcumulada
+    });
+
+  } catch (error) {
+    console.error("Error al agendar la entrevista:", error.message);
+    res.status(500).json({ error: `Error al agendar la entrevista: ${error.message}` });
+  }
+};
+
+
+export const insertarReservaEntrevista = async (req, res) => {
+  const { idProfesor, idPadre, fecha, descripcion, idMotivo } = req.body;
+
+
+  try {
+    if (!idProfesor || !idPadre || !fecha || !idMotivo) { 
+      return res.status(400).json({ error: "Todos los campos son obligatorios" });
+    }
+
+    // Verificar motivo y obtener su prioridad
+    const motivoCheck = await pool.query(
+      `SELECT m.nombremotivo, p.tipoprioridad 
+       FROM motivo m 
+       JOIN prioridad p ON m.idprioridad = p.idprioridad 
+       WHERE m.idmotivo = $1 AND m.estado = TRUE`,
+      [idMotivo]
+    );
+
+    if (motivoCheck.rows.length === 0) {
+      return res.status(400).json({ error: "Motivo no válido" });
+    }
+
+    const { tipoprioridad } = motivoCheck.rows[0];
+    const duracionAtencion = tipoprioridad.toLowerCase() === 'alta' ? 25 :
+                             tipoprioridad.toLowerCase() === 'media' ? 20 : 10;
+
+
+
+    // Obtener el horario del profesor
+    const horarioData = await pool.query(
+      `SELECT horainicio::text, horafin::text 
+       FROM horario h
+       INNER JOIN profesor p ON h.idhorario = p.idhorario
+       WHERE p.idprofesor = $1 AND h.estado = TRUE`,
+      [idProfesor]
+    );
+
+    if (horarioData.rows.length === 0) {
+      return res.status(400).json({ error: "No se encontró un horario para este profesor" });
+    }
+
+    const { horainicio, horafin } = horarioData.rows[0];
+
+
+    // Consultar la última hora fin de entrevista para la fecha seleccionada
     let horafinentrevista;
     const ultimaEntrevistaResult = await pool.query(
       `SELECT horafinentrevista::text 
@@ -67,53 +197,48 @@ export const agendarEntrevista = async (req, res) => {
     );
 
     if (ultimaEntrevistaResult.rows.length === 0) {
-      // No hay entrevistas previas para la fecha, usar horainicio como base
       horafinentrevista = horainicio;
-      console.log(`Primera entrevista del día. Usando horainicio: ${horainicio}`);
+
     } else {
       horafinentrevista = ultimaEntrevistaResult.rows[0].horafinentrevista;
-      console.log(`Última horafinentrevista usada como base: ${horafinentrevista}`);
+
     }
 
-    // Validar que horafinentrevista no sea null antes de usar split
-    if (!horafinentrevista) {
-      horafinentrevista = horainicio;
-      console.log(`No se encontró horafinentrevista previa, usando horainicio: ${horainicio}`);
-    }
-
+    // Calcular la nueva `horafinentrevista`
     let [horas, minutos] = horafinentrevista.split(":").map(Number);
     let nuevaHoraFinMinutos = horas * 60 + minutos + duracionAtencion;
     const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
     const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
     const nuevaHorafinEntrevista = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
 
-    console.log(`Nueva horafinentrevista calculada: ${nuevaHorafinEntrevista}`);
 
-    // Verificar que la nueva hora de fin no exceda el horario permitido
+
+    // Validar si la nueva hora excede el horario permitido
     if (nuevaHorafinEntrevista > horafin) {
       return res.status(400).json({ error: "La entrevista excede el horario permitido" });
     }
 
-    const nuevaEntrevista = await pool.query(
+    // Insertar la nueva reserva de entrevista
+    const nuevaReserva = await pool.query(
       `INSERT INTO reservarentrevista 
-        (idprofesor, idpsicologo, idpadre, fecha, descripcion, idmotivo, horafinentrevista, estado) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NULL) 
-      RETURNING horafinentrevista`,
-      [idProfesor, idPsicologo, idPadre, fecha, descripcion, idMotivo, nuevaHorafinEntrevista]
+       (idprofesor, idpadre, fecha, descripcion, idmotivo, horafinentrevista, estado)
+       VALUES ($1, $2, $3, $4, $5, $6, NULL) 
+       RETURNING *`,
+      [idProfesor, idPadre, fecha, descripcion || '', idMotivo, nuevaHorafinEntrevista]
     );
 
-    ultimaHoraAcumulada = nuevaEntrevista.rows[0].horafinentrevista;
-    console.log(`Entrevista agendada correctamente con horafinentrevista acumulada: ${ultimaHoraAcumulada}`);
 
-    res.status(201).json({
-      success: "Entrevista agendada correctamente",
-      horafinentrevista: ultimaHoraAcumulada
-    });
+
+    res.status(201).json({ message: "Reserva de entrevista creada con éxito", data: nuevaReserva.rows[0] });
   } catch (error) {
-    console.error("Error al agendar la entrevista:", error.message);
-    res.status(500).json({ error: `Error al agendar la entrevista: ${error.message}` });
+    console.error("Error al insertar la reserva de entrevista:", error);
+    res.status(500).json({ error: "Error al insertar la reserva de entrevista" });
   }
 };
+
+
+
+
 
 
 
@@ -309,5 +434,51 @@ export const obtenerListaEntrevistaPorRango = async (req, res) => {
   } catch (error) {
     console.error("Error al obtener la lista de entrevistas:", error.message);
     res.status(500).json({ error: `Error al obtener la lista de entrevistas: ${error.message}` });
+  }
+};
+
+export const verEntrevistasPadres = async (req, res) => {
+  const { idPadre } = req.params;
+
+
+
+  try {
+    if (!idPadre) {
+      return res.status(400).json({ error: "El idPadre es obligatorio" });
+    }
+
+    const entrevistas = await pool.query(`
+      SELECT 
+        re.idreservarentrevista AS id,
+        TO_CHAR(re.fecha, 'YYYY-MM-DD') AS fecha,
+        CONCAT(prof.nombres, ' ', prof.apellidopaterno, ' ', prof.apellidomaterno) AS profesor,
+        m.nombre AS materia,
+        TO_CHAR(re.horafinentrevista, 'HH24:MI:SS') AS horafinentrevista, -- Alias más claro
+        CASE 
+          WHEN re.estado IS NULL THEN 'Pendiente'
+          WHEN re.estado = TRUE THEN 'Completada'
+          ELSE 'No realizada'
+        END AS estado
+      FROM reservarentrevista re
+      INNER JOIN profesor prof ON re.idprofesor = prof.idprofesor
+      INNER JOIN horario h ON prof.idhorario = h.idhorario
+      INNER JOIN materia m ON h.idmateria = m.idmateria
+      WHERE re.idpadre = $1
+      ORDER BY re.fecha ASC, re.horafinentrevista ASC;
+    `, [idPadre]);
+
+
+
+    if (entrevistas.rows.length === 0) {
+      return res.status(404).json({ error: "No se encontraron entrevistas para este padre de familia" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: entrevistas.rows,
+    });
+  } catch (error) {
+    console.error("Error al obtener el historial de citas:", error.message);
+    res.status(500).json({ error: "Error al obtener el historial de citas" });
   }
 };

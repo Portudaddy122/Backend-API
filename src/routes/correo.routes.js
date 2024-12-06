@@ -1,8 +1,9 @@
 import Router from 'express';
-import { enviarCorreo } from '../controllers/correo.controller.js';
+import { enviarCodigoConfirmacion, enviarCorreo } from '../controllers/correo.controller.js';
 
 const router = Router();
 
 router.post('/enviarCorreo', enviarCorreo);
 
+router.post('/enviarCorreoConfirmacion', enviarCodigoConfirmacion);
 export default router;

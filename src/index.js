@@ -16,6 +16,8 @@ import horarioRoutes from './routes/horario.routes.js';
 import materiaRoutes from './routes/materia.routes.js';
 import correoRoutes from './routes/correo.routes.js'
 import documentRoutes from './routes/document.routes.js'
+import dashboardRoutes from './routes/dashboard.routes.js'
+import actasRoutes from './routes/actas.routes.js'
 import dotenv from 'dotenv';
 
 
@@ -44,6 +46,9 @@ app.use(horarioRoutes);
 app.use(materiaRoutes);
 app.use(correoRoutes);
 app.use(documentRoutes);
+app.use(dashboardRoutes);
+app.use(actasRoutes);
+
 
 app.listen(PORT);
 console.log(`Servidor corriendo en el puerto`, PORT);

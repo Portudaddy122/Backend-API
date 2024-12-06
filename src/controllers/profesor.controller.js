@@ -59,18 +59,37 @@ export const createProfesor = async (req, res) => {
     fechaDeNacimiento,
     contrasenia,
     rol,
-    idhorario
+    idhorario,
   } = req.body;
 
   try {
     // Validación de campos obligatorios
-    const requiredFields = { idDireccion, nombres, apellidoPaterno, apellidoMaterno, email, numCelular, fechaDeNacimiento, contrasenia, rol, idhorario };
+    const requiredFields = {
+      idDireccion,
+      nombres,
+      apellidoPaterno,
+      apellidoMaterno,
+      email,
+      numCelular,
+      fechaDeNacimiento,
+      contrasenia,
+      rol,
+      idhorario,
+    };
     for (const [key, value] of Object.entries(requiredFields)) {
       if (!value || (typeof value === "string" && value.trim() === "")) {
-        return res.status(400).json({ error: `El campo ${key} es obligatorio y no puede estar vacío` });
+        return res.status(400).json({
+          error: `El campo ${key} es obligatorio y no puede estar vacío`,
+        });
       }
-      if (["nombres", "apellidoPaterno", "apellidoMaterno"].includes(key) && typeof value === "string" && /[^a-zA-Z\s]/.test(value)) {
-        return res.status(400).json({ error: `El campo ${key} no puede contener caracteres especiales o números` });
+      if (
+        ["nombres", "apellidoPaterno", "apellidoMaterno"].includes(key) &&
+        typeof value === "string" &&
+        /[^a-zA-Z\s]/.test(value)
+      ) {
+        return res.status(400).json({
+          error: `El campo ${key} no puede contener caracteres especiales o números`,
+        });
       }
     }
 
@@ -80,9 +99,14 @@ export const createProfesor = async (req, res) => {
     }
 
     // Validar que el email no esté repetido
-    const emailCheck = await pool.query("SELECT idProfesor FROM Profesor WHERE email = $1", [email]);
+    const emailCheck = await pool.query(
+      "SELECT idProfesor FROM Profesor WHERE email = $1",
+      [email]
+    );
     if (emailCheck.rows.length > 0) {
-      return res.status(400).json({ error: "El correo electrónico ya está registrado por otro usuario" });
+      return res.status(400).json({
+        error: "El correo electrónico ya está registrado por otro usuario",
+      });
     }
 
     const hashedPassword = await bcrypt.hash(contrasenia, 10);
@@ -91,7 +115,18 @@ export const createProfesor = async (req, res) => {
     const profesorResult = await pool.query(
       `INSERT INTO Profesor (idDireccion, Nombres, ApellidoPaterno, ApellidoMaterno, email, NumCelular, FechaDeNacimiento, Contrasenia, Rol, Estado, idhorario) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10) RETURNING *`,
-      [idDireccion, nombres, apellidoPaterno, apellidoMaterno, email, numCelular, fechaDeNacimiento, hashedPassword, rol, idhorario]
+      [
+        idDireccion,
+        nombres,
+        apellidoPaterno,
+        apellidoMaterno,
+        email,
+        numCelular,
+        fechaDeNacimiento,
+        hashedPassword,
+        rol,
+        idhorario,
+      ]
     );
 
     res.status(201).json(profesorResult.rows[0]);
@@ -101,53 +136,67 @@ export const createProfesor = async (req, res) => {
   }
 };
 
-
 // Actualizar un profesor
 export const updateProfesor = async (req, res) => {
   const { idProfesor } = req.params;
   const {
-    idDireccion,
+    iddireccion,
     nombres,
-    apellidoPaterno,
-    apellidoMaterno,
+    apellidopaterno,
+    apellidomaterno,
     email,
-    numCelular,
-    fechaDeNacimiento,
+    numcelular,
+    fechadenacimiento,
     contrasenia,
     estado,
     rol,
-    idhorario
+    idhorario,
   } = req.body;
 
   try {
-    const { rows } = await pool.query("SELECT * FROM Profesor WHERE idProfesor = $1", [idProfesor]);
+    // Verificar si el profesor existe
+    const { rows } = await pool.query(
+      "SELECT * FROM profesor WHERE idprofesor = $1",
+      [idProfesor]
+    );
     if (rows.length === 0) {
       return res.status(404).json({ error: "Profesor no encontrado" });
     }
     const currentData = rows[0];
 
+    // Cifrar la contraseña solo si se ha proporcionado una nueva
     let hashedPassword = currentData.contrasenia;
-    if (contrasenia) {
+    if (contrasenia && contrasenia !== currentData.contrasenia) {
       hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
     }
 
     await pool.query(
-      `UPDATE Profesor 
-       SET idDireccion = $1, Nombres = $2, ApellidoPaterno = $3, ApellidoMaterno = $4, email = $5, NumCelular = $6, FechaDeNacimiento = $7, Contrasenia = $8, Rol = $9, Estado = $10, idhorario = $11
-       WHERE idProfesor = $12`,
+      `UPDATE profesor 
+       SET iddireccion = COALESCE($1, iddireccion), 
+           nombres = COALESCE($2, nombres), 
+           apellidopaterno = COALESCE($3, apellidopaterno), 
+           apellidomaterno = COALESCE($4, apellidomaterno), 
+           email = COALESCE($5, email), 
+           numcelular = COALESCE($6, numcelular), 
+           fechadenacimiento = COALESCE($7, fechadenacimiento), 
+           contrasenia = COALESCE($8, contrasenia), 
+           estado = COALESCE($9, estado), 
+           rol = COALESCE($10, rol), 
+           idhorario = COALESCE($11, idhorario)
+       WHERE idprofesor = $12`,
       [
-        idDireccion || currentData.iddireccion,
-        nombres?.trim() || currentData.nombres,
-        apellidoPaterno?.trim() || currentData.apellidopaterno,
-        apellidoMaterno?.trim() || currentData.apellidomaterno,
-        email?.trim() || currentData.email,
-        numCelular?.trim() || currentData.numcelular,
-        fechaDeNacimiento || currentData.fechadenacimiento,
+        iddireccion,
+        nombres?.trim(),
+        apellidopaterno?.trim(),
+        apellidomaterno?.trim(),
+        email?.trim(),
+        numcelular?.trim(),
+        fechadenacimiento,
         hashedPassword,
-        rol?.trim() || currentData.rol,
-        estado !== undefined ? estado : currentData.estado,
-        idhorario || currentData.idhorario,
-        idProfesor
+        estado,
+        rol,
+        idhorario,
+        idProfesor,
       ]
     );
 
@@ -158,8 +207,6 @@ export const updateProfesor = async (req, res) => {
   }
 };
 
-
-  
 // Eliminar un profesor (desactivar)
 export const deleteProfesor = async (req, res) => {
   const { idProfesor } = req.params;
@@ -212,5 +259,31 @@ export const getProfesorCount = async (req, res) => {
     });
   } catch (error) {
     console.error("Error al obtener la cantidad de profesores:", error);
-}
+  }
+};
+export const getProfesoresConHorarios = async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT 
+        p.idprofesor, 
+        CONCAT(p.nombres, ' ', p.apellidopaterno, ' ', p.apellidomaterno) AS nombre, 
+        m.nombre AS materia, 
+        h.dia, 
+        h.horainicio, 
+        h.horafin,
+        p.email
+      FROM profesor p
+      INNER JOIN horario h ON p.idhorario = h.idhorario
+      INNER JOIN materia m ON h.idmateria = m.idmateria
+      WHERE p.estado = true
+      ORDER BY p.idprofesor ASC
+      `
+    );
+
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener profesores con horarios:", error);
+    res.status(500).json({ error: "Error al obtener profesores con horarios" });
+  }
 };

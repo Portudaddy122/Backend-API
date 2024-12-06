@@ -127,6 +127,8 @@ export const createPadreFamilia = async (req, res) => {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
+
+
 };
 
 // Actualizar un padre de familia (con validación y preservando valores actuales)
@@ -134,95 +136,55 @@ export const createPadreFamilia = async (req, res) => {
 export const updatePadreFamilia = async (req, res) => {
   const { idPadre } = req.params;
   const {
-    idDireccion,
+    iddireccion,
     nombres,
-    apellidoPaterno,
-    apellidoMaterno,
+    apellidopaterno,
+    apellidomaterno,
     email,
-    numCelular,
-    fechaDeNacimiento,
+    numcelular,
+    fechadenacimiento,
     contrasenia,
     estado,
-    rol,
+    rol
   } = req.body;
-  // Validar campos obligatorios si se envían
-  if (
-    (idDireccion && idDireccion === "") ||
-    (nombres && !nombres.trim()) ||
-    (apellidoPaterno && !apellidoPaterno.trim()) ||
-    (apellidoMaterno && !apellidoMaterno.trim()) ||
-    (email && !email.trim()) ||
-    (numCelular && !numCelular.trim()) ||
-    (fechaDeNacimiento && !fechaDeNacimiento.trim()) ||
-    (contrasenia && !contrasenia.trim()) ||
-    (rol && !rol.trim())
-  ) {
-    return res.status(400).json({ error: "Todos los campos son obligatorios y no pueden contener solo espacios en blanco" });
-  }
 
-  // Validar que los nombres y apellidos no contengan caracteres especiales si se proporcionan
-  const namePattern = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
-  if (nombres && !namePattern.test(nombres)) {
-    return res.status(400).json({
-      error: "Los nombres no deben contener caracteres especiales",
-    });
-  }
-  if (apellidoPaterno && !namePattern.test(apellidoPaterno)) {
-    return res.status(400).json({
-      error: "El apellido paterno no debe contener caracteres especiales",
-    });
-  }
-  if (apellidoMaterno && !namePattern.test(apellidoMaterno)) {
-    return res.status(400).json({
-      error: "El apellido materno no debe contener caracteres especiales",
-    });
-  }
-
-  // Validar que el rol sea "Padre de Familia"
-  if (rol && rol !== "Padre de Familia") {
-    return res.status(400).json({ error: 'El rol debe ser "Padre de Familia"' });
-  }
-
-  // Validar que el email no esté repetido si se proporciona
-  if (email) {
-    const emailCheck = await pool.query(
-      "SELECT idPadre FROM PadreDeFamilia WHERE email = $1 AND idPadre != $2",
-      [email.trim(), idPadre]
-    );
-    if (emailCheck.rows.length > 0) {
-      return res
-        .status(400)
-        .json({ error: "El correo electrónico ya está registrado por otro usuario" });
-    }
-  }
   try {
-    const { rows } = await pool.query("SELECT * FROM PadreDeFamilia WHERE idPadre = $1", [idPadre]);
+    const { rows } = await pool.query("SELECT * FROM padredefamilia WHERE idpadre = $1", [idPadre]);
     if (rows.length === 0) {
       return res.status(404).json({ error: "Padre de familia no encontrado" });
     }
     const currentData = rows[0];
 
-    let hashedPassword = currentData.contrasenia; // Mantener la contraseña actual si no se proporciona
-    if (contrasenia) {
-      hashedPassword = await bcrypt.hash(contrasenia.trim(), 10); // Cifrar si se proporciona una nueva
+    let hashedPassword = currentData.contrasenia;
+    if (contrasenia && contrasenia !== currentData.contrasenia) {
+      hashedPassword = await bcrypt.hash(contrasenia.trim(), 10);
     }
 
     await pool.query(
-      `UPDATE PadreDeFamilia 
-        SET idDireccion = $1, Nombres = $2, ApellidoPaterno = $3, ApellidoMaterno = $4, email = $5, NumCelular = $6, FechaDeNacimiento = $7, Contrasenia = $8, Rol = $9, Estado = $10
-        WHERE idPadre = $11`,
+      `UPDATE padredefamilia 
+       SET iddireccion = COALESCE($1, iddireccion), 
+           nombres = COALESCE($2, nombres), 
+           apellidopaterno = COALESCE($3, apellidopaterno), 
+           apellidomaterno = COALESCE($4, apellidomaterno), 
+           email = COALESCE($5, email), 
+           numcelular = COALESCE($6, numcelular), 
+           fechadenacimiento = COALESCE($7, fechadenacimiento), 
+           contrasenia = COALESCE($8, contrasenia), 
+           estado = COALESCE($9, estado), 
+           rol = COALESCE($10, rol)
+       WHERE idpadre = $11`,
       [
-        idDireccion || currentData.iddireccion,
-        nombres?.trim() || currentData.nombres,
-        apellidoPaterno?.trim() || currentData.apellidopaterno,
-        apellidoMaterno?.trim() || currentData.apellidomaterno,
-        email?.trim() || currentData.email,
-        numCelular?.trim() || currentData.numcelular,
-        fechaDeNacimiento || currentData.fechadenacimiento,
-        hashedPassword, // Usar la nueva contraseña cifrada o mantener la actual
-        rol?.trim() || currentData.rol,
-        estado !== undefined ? estado : currentData.estado,
-        idPadre,
+        iddireccion,
+        nombres?.trim(),
+        apellidopaterno?.trim(),
+        apellidomaterno?.trim(),
+        email?.trim(),
+        numcelular?.trim(),
+        fechadenacimiento,
+        hashedPassword,
+        estado,
+        rol,
+        idPadre
       ]
     );
 
@@ -232,6 +194,7 @@ export const updatePadreFamilia = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
   
 
