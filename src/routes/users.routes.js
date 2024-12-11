@@ -1,5 +1,5 @@
 import Router from 'express';
-import { filterUsers, filterUsuarios, getallUserEntry, getAllUsers, obtenerCantidadUsuariosConIngresos, obtenerDatosUsuariosConIngresos, obtenerIngresos, obtenerIngresosPorRango, registrarIngreso } from '../controllers/users.controller.js';
+import { activarUsuario, filterUsers, filterUsuarios, getallUserEntry, getAllUsers, listarUsuariosInactivos, obtenerCantidadUsuariosConIngresos, obtenerDatosUsuariosConIngresos, obtenerIngresos, obtenerIngresosPorRango, registrarIngreso } from '../controllers/users.controller.js';
 
 
 const router = Router();
@@ -23,7 +23,10 @@ router.post("/ingresos/rango", obtenerIngresosPorRango);
 
 router.get('/cantidad-usuarios-ingresos', obtenerCantidadUsuariosConIngresos);
 
-
-
 router.post('/ingresoslogin', registrarIngreso);
+// Listar usuarios inactivos
+router.get('/usuarios/inactivos', listarUsuariosInactivos);
+
+// Activar usuario (cambiar estado a true)
+router.put('/usuarios/activar', activarUsuario);
 export default router;

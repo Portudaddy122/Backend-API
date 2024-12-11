@@ -263,10 +263,11 @@ export const getProfesorCount = async (req, res) => {
 };
 export const getProfesoresConHorarios = async (req, res) => {
   try {
-    const { rows } = await pool.query(
+    const { rows: profesores } = await pool.query(
       `
       SELECT 
-        p.idprofesor, 
+        'Profesor' AS tipo,
+        p.idprofesor AS id, 
         CONCAT(p.nombres, ' ', p.apellidopaterno, ' ', p.apellidomaterno) AS nombre, 
         m.nombre AS materia, 
         h.dia, 
@@ -281,9 +282,32 @@ export const getProfesoresConHorarios = async (req, res) => {
       `
     );
 
-    res.json(rows);
+    const { rows: psicologos } = await pool.query(
+      `
+      SELECT 
+        'Psicólogo' AS tipo,
+        ps.idpsicologo AS id, 
+        CONCAT(ps.nombres, ' ', ps.apellidopaterno, ' ', ps.apellidomaterno) AS nombre, 
+        'Psicólogo' AS materia, -- Asignar "Psicólogo" como valor por defecto
+        h.dia, 
+        h.horainicio, 
+        h.horafin,
+        ps.email
+      FROM psicologo ps
+      INNER JOIN horario h ON ps.idhorario = h.idhorario
+      WHERE ps.estado = true
+      ORDER BY ps.idpsicologo ASC
+      `
+    );
+
+    // Combinar ambos resultados
+    const resultado = [...profesores, ...psicologos];
+
+    res.json(resultado);
   } catch (error) {
-    console.error("Error al obtener profesores con horarios:", error);
-    res.status(500).json({ error: "Error al obtener profesores con horarios" });
+    console.error("Error al obtener profesores y psicólogos con horarios:", error);
+    res.status(500).json({ error: "Error al obtener profesores y psicólogos con horarios" });
   }
 };
+
+

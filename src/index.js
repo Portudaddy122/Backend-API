@@ -19,6 +19,8 @@ import documentRoutes from './routes/document.routes.js'
 import dashboardRoutes from './routes/dashboard.routes.js'
 import actasRoutes from './routes/actas.routes.js'
 import dotenv from 'dotenv';
+import schedule from 'node-schedule';
+import { enviarCorreo } from './controllers/correo.controller.js';
 
 
 
@@ -49,6 +51,24 @@ app.use(documentRoutes);
 app.use(dashboardRoutes);
 app.use(actasRoutes);
 
+
+
+// Programar la tarea a las 18:00 todos los días
+schedule.scheduleJob('0 18 * * *', async () => {
+    const hoy = new Date().toISOString().split('T')[0];
+    console.log(`Ejecutando tarea programada para la fecha: ${hoy}`);
+    
+    // Obtener los padres que tienen citas para hoy
+    const padres = await pool.query(
+      `SELECT idpadre FROM reservarentrevista WHERE fecha = $1 AND estado IS NULL`,
+      [hoy]
+    );
+  
+    for (let padre of padres.rows) {
+      // Enviar el correo a cada uno
+      await enviarCorreo(padre.idpadre, hoy);
+    }
+  });
 
 app.listen(PORT);
 console.log(`Servidor corriendo en el puerto`, PORT);

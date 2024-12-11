@@ -390,3 +390,121 @@ export const obtenerCantidadUsuariosConIngresos = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener la cantidad de usuarios con ingresos.' });
   }
 };
+
+
+
+// Listar todos los usuarios con estado false
+export const listarUsuariosInactivos = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        'Administrador' AS rol, 
+        idAdministrador AS id, 
+        Nombres, 
+        ApellidoPaterno, 
+        ApellidoMaterno, 
+        Email, 
+        NumCelular 
+      FROM Administrador
+      WHERE Estado = false
+
+      UNION ALL
+
+      SELECT 
+        'Profesor' AS rol, 
+        idProfesor AS id, 
+        Nombres, 
+        ApellidoPaterno, 
+        ApellidoMaterno, 
+        Email, 
+        NumCelular 
+      FROM Profesor
+      WHERE Estado = false
+
+      UNION ALL
+
+      SELECT 
+        'Psicologo' AS rol, 
+        idPsicologo AS id, 
+        Nombres, 
+        ApellidoPaterno, 
+        ApellidoMaterno, 
+        Email, 
+        NumCelular 
+      FROM Psicologo
+      WHERE Estado = false
+
+      UNION ALL
+
+      SELECT 
+        'Padre de Familia' AS rol, 
+        idPadre AS id, 
+        Nombres, 
+        ApellidoPaterno, 
+        ApellidoMaterno, 
+        Email, 
+        NumCelular 
+      FROM PadreDeFamilia
+      WHERE Estado = false
+    `;
+
+    const { rows } = await pool.query(query);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "No hay usuarios inactivos." });
+    }
+
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error("Error al listar usuarios inactivos:", error);
+    res.status(500).json({ error: "Error al listar usuarios inactivos." });
+  }
+};
+
+// Cambiar el estado de un usuario a true
+export const activarUsuario = async (req, res) => {
+  const { id, rol } = req.body;
+
+  if (!id || !rol) {
+    return res.status(400).json({ error: "Faltan datos: id o rol del usuario." });
+  }
+
+  try {
+    let tableName;
+
+    // Determinar la tabla según el rol
+    switch (rol) {
+      case "Administrador":
+        tableName = "Administrador";
+        break;
+      case "Profesor":
+        tableName = "Profesor";
+        break;
+      case "Psicologo":
+        tableName = "Psicologo";
+        break;
+      case "Padre de Familia":
+        tableName = "PadreDeFamilia";
+        break;
+      default:
+        return res.status(400).json({ error: "Rol no válido." });
+    }
+
+    // Actualizar el estado del usuario a true
+    const query = `
+      UPDATE ${tableName}
+      SET Estado = true
+      WHERE id${tableName} = $1
+    `;
+    const result = await pool.query(query, [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Usuario no encontrado." });
+    }
+
+    res.status(200).json({ message: "Estado del usuario actualizado exitosamente." });
+  } catch (error) {
+    console.error("Error al actualizar el estado del usuario:", error);
+    res.status(500).json({ error: "Error al actualizar el estado del usuario." });
+  }
+};
