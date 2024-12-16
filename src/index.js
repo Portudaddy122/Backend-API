@@ -52,21 +52,57 @@ app.use(dashboardRoutes);
 app.use(actasRoutes);
 
 
-
-// Programar la tarea a las 18:00 todos los días
+// Tarea a las 18:00 todos los días
 schedule.scheduleJob('0 18 * * *', async () => {
-    const hoy = new Date().toISOString().split('T')[0];
-    console.log(`Ejecutando tarea programada para la fecha: ${hoy}`);
-    
-    // Obtener los padres que tienen citas para hoy
-    const padres = await pool.query(
-      `SELECT idpadre FROM reservarentrevista WHERE fecha = $1 AND estado IS NULL`,
-      [hoy]
-    );
+    try {
+      const hoy = new Date().toISOString().split('T')[0];
+      console.log(`Ejecutando tarea programada para la fecha: ${hoy}`);
   
-    for (let padre of padres.rows) {
-      // Enviar el correo a cada uno
-      await enviarCorreo(padre.idpadre, hoy);
+      // Obtener los datos de las entrevistas pendientes para la fecha actual
+      const entrevistas = await pool.query(
+        `SELECT re.idpadre, re.fecha, re.descripcion, m.nombremotivo, 
+                h.horainicio::text AS horainicio, h.horafin::text AS horafin, 
+                CASE 
+                  WHEN p.idprofesor IS NOT NULL THEN CONCAT(pr.nombres, ' ', pr.apellidopaterno, ' ', pr.apellidomaterno)
+                  ELSE CONCAT(ps.nombres, ' ', ps.apellidopaterno, ' ', ps.apellidomaterno)
+                END AS profesional
+         FROM reservarentrevista re
+         JOIN motivo m ON re.idmotivo = m.idmotivo
+         LEFT JOIN profesor p ON re.idprofesor = p.idprofesor
+         LEFT JOIN psicologo ps ON re.idpsicologo = ps.idpsicologo
+         LEFT JOIN horario h ON (h.idhorario = p.idhorario OR h.idhorario = ps.idhorario)
+         LEFT JOIN profesor pr ON re.idprofesor = pr.idprofesor
+         WHERE re.fecha = $1 AND re.estado IS NULL`,
+        [hoy]
+      );
+  
+     
+      if (entrevistas.rows.length === 0) {
+        console.log('No hay entrevistas pendientes para enviar correos.');
+        return;
+      }
+  
+      
+      for (const entrevista of entrevistas.rows) {
+        try {
+          await enviarCorreo({
+            idPadre: entrevista.idpadre,
+            motivo: entrevista.nombremotivo,
+            fecha: entrevista.fecha,
+            horario: entrevista.horainicio,
+            horafin: entrevista.horafin,
+            descripcion: entrevista.descripcion,
+            profesional: entrevista.profesional,
+          });
+          console.log(`Correo enviado a ID Padre: ${entrevista.idpadre}`);
+        } catch (error) {
+          console.error(`Error al enviar correo a ID Padre: ${entrevista.idpadre}`, error);
+        }
+      }
+  
+      console.log('Tarea de envío de correos completada.');
+    } catch (error) {
+      console.error('Error al ejecutar la tarea programada:', error);
     }
   });
 

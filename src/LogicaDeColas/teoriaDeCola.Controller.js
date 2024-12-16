@@ -1,33 +1,21 @@
 import { pool } from "../db.js";
-import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import crypto from "crypto";
+import nodemailer from "nodemailer";
 
 
 export const agendarEntrevista = async (req, res) => {
-  const {
-    idProfesor,
-    idPsicologo,
-    idPadre,
-    fecha,
-    descripcion,
-    idMotivo,
-  } = req.body;
+  const { idProfesor, idPsicologo, idPadre, fecha, descripcion, idMotivo } = req.body;
 
   try {
     console.log("Datos recibidos desde el frontend:", req.body);
 
-    // Validar los datos obligatorios
-    if ((!idProfesor && !idPsicologo) || (idProfesor && idPsicologo)) {
-      console.error("Error: Se debe enviar solo idProfesor o idPsicologo, no ambos.");
-      return res.status(400).json({ error: "Debes seleccionar un profesor o un psicólogo, pero no ambos." });
+    if ((!idProfesor && !idPsicologo) || !idPadre || !fecha || !idMotivo) {
+      return res.status(400).json({
+        error: "Todos los campos obligatorios deben ser completados.",
+      });
     }
 
-    if (!idPadre || !fecha || !descripcion || !idMotivo) {
-      console.error("Error: Campos obligatorios faltantes.");
-      return res.status(400).json({ error: "Todos los campos son obligatorios." });
-    }
-
-    // Validar el motivo y obtener su prioridad
+    // Validar motivo y prioridad
     const motivoCheck = await pool.query(
       `SELECT m.nombremotivo, p.tipoprioridad 
        FROM motivo m 
@@ -37,150 +25,173 @@ export const agendarEntrevista = async (req, res) => {
     );
 
     if (motivoCheck.rows.length === 0) {
-      console.error("Error: Motivo no válido.");
       return res.status(400).json({ error: "Motivo no válido." });
     }
 
     const { nombremotivo, tipoprioridad } = motivoCheck.rows[0];
-    console.log("Prioridad del motivo:", tipoprioridad);
+    const duracionAtencion =
+      tipoprioridad.toLowerCase() === "alta"
+        ? 25
+        : tipoprioridad.toLowerCase() === "media"
+        ? 20
+        : 10;
 
-    const duracionAtencion = tipoprioridad.toLowerCase() === 'alta' ? 25 :
-                             tipoprioridad.toLowerCase() === 'media' ? 20 : 10;
+    // Obtener horario
+    const horarioQuery = `
+      SELECT h.horainicio::text, h.horafin::text, 
+             ${idProfesor ? "m.nombre AS materia" : "'Psicólogo' AS materia"} 
+      FROM horario h
+      LEFT JOIN materia m ON h.idmateria = m.idmateria
+      WHERE h.idhorario = (
+        SELECT idhorario FROM ${idProfesor ? "profesor" : "psicologo"} 
+        WHERE ${idProfesor ? "idprofesor" : "idpsicologo"} = $1 AND estado = TRUE
+      )
+    `;
 
-    // Obtener el idhorario basado en el idProfesor o idPsicologo
-    let idhorario;
-    let profesional;
-    if (idProfesor) {
-      const profesorData = await pool.query(
-        `SELECT idhorario, nombres, apellidopaterno, apellidomaterno 
-         FROM Profesor 
-         WHERE idprofesor = $1 AND estado = TRUE`,
-        [idProfesor]
-      );
-      if (profesorData.rows.length === 0) {
-        console.error("Error: Profesor no encontrado o no está activo.");
-        return res.status(400).json({ error: "Profesor no encontrado o no está activo." });
-      }
-      idhorario = profesorData.rows[0].idhorario;
-      profesional = profesorData.rows[0];
-      console.log("Profesor encontrado:", profesional);
-    } else if (idPsicologo) {
-      const psicologoData = await pool.query(
-        `SELECT idhorario, nombres, apellidopaterno, apellidomaterno 
-         FROM Psicologo 
-         WHERE idpsicologo = $1 AND estado = TRUE`,
-        [idPsicologo]
-      );
-      if (psicologoData.rows.length === 0) {
-        console.error("Error: Psicólogo no encontrado o no está activo.");
-        return res.status(400).json({ error: "Psicólogo no encontrado o no está activo." });
-      }
-      idhorario = psicologoData.rows[0].idhorario;
-      profesional = psicologoData.rows[0];
-      console.log("Psicólogo encontrado:", profesional);
-    }
-
-    // Obtener el horario del usuario según el idhorario
-    const horarioData = await pool.query(
-      `SELECT horainicio::text, horafin::text 
-       FROM horario 
-       WHERE idhorario = $1 AND estado = TRUE`,
-      [idhorario]
-    );
+    const horarioData = await pool.query(horarioQuery, [idProfesor || idPsicologo]);
 
     if (horarioData.rows.length === 0) {
-      console.error("Error: No se encontró un horario para este usuario.");
-      return res.status(400).json({ error: "No se encontró un horario para este usuario." });
+      return res.status(400).json({ error: "No se encontró un horario válido." });
     }
 
-    const { horainicio, horafin } = horarioData.rows[0];
-    console.log("Horario encontrado:", { horainicio, horafin });
+    const { horainicio, horafin, materia } = horarioData.rows[0];
 
-    // Insertar la nueva entrevista
-    await pool.query(
-      `INSERT INTO reservarentrevista 
-       (idprofesor, idpsicologo, idpadre, fecha, descripcion, idmotivo, estado) 
-       VALUES ($1, $2, $3, $4, $5, $6, NULL)`,
-      [idProfesor || null, idPsicologo || null, idPadre, fecha, descripcion, idMotivo]
-    );
-    console.log("Entrevista insertada con éxito.");
-
-    // Reordenar entrevistas y recalcular horas
-    const entrevistas = await pool.query(
-      `SELECT re.idreservarentrevista, 
-              re.idmotivo, 
-              p.tipoprioridad, 
-              re.fecha
+    // Obtener entrevistas existentes
+    const entrevistasPrevias = await pool.query(
+      `SELECT re.idreservarentrevista, re.idpadre, m.nombremotivo, pr.tipoprioridad AS prioridad
        FROM reservarentrevista re
        JOIN motivo m ON re.idmotivo = m.idmotivo
-       JOIN prioridad p ON m.idprioridad = p.idprioridad
+       JOIN prioridad pr ON m.idprioridad = pr.idprioridad
        WHERE re.fecha = $1
+       AND (
+         (re.idprofesor = $2 AND $2 IS NOT NULL) OR 
+         (re.idpsicologo = $3 AND $3 IS NOT NULL)
+       )
        ORDER BY CASE 
-                  WHEN p.tipoprioridad = 'Alta' THEN 1
-                  WHEN p.tipoprioridad = 'Media' THEN 2
+                  WHEN pr.tipoprioridad = 'Alta' THEN 1
+                  WHEN pr.tipoprioridad = 'Media' THEN 2
                   ELSE 3 
                 END, re.idreservarentrevista`,
-      [fecha]
+      [fecha, idProfesor, idPsicologo]
     );
 
     let horaActual = horainicio;
-    for (const entrevista of entrevistas.rows) {
-      const duracion = entrevista.tipoprioridad.toLowerCase() === 'alta' ? 25 :
-                       entrevista.tipoprioridad.toLowerCase() === 'media' ? 20 : 10;
+    const recalculatedInterviews = [];
+
+    for (const entrevista of entrevistasPrevias.rows) {
+      const duracion =
+        entrevista.prioridad.toLowerCase() === "alta"
+          ? 25
+          : entrevista.prioridad.toLowerCase() === "media"
+          ? 20
+          : 10;
 
       const [horas, minutos] = horaActual.split(":").map(Number);
       const nuevaHoraFinMinutos = horas * 60 + minutos + duracion;
       const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
       const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
 
-      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
+      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(
+        nuevaHoraFinRestantesMinutos
+      ).padStart(2, "0")}:00`;
 
       if (nuevaHoraFin > horafin) {
-        console.error("Error: El horario excede el tiempo disponible.");
-        return res.status(400).json({
-          error: "El horario excede el tiempo disponible del profesor/psicólogo.",
-        });
+        console.log("La agenda está llena para la fecha seleccionada.");
+        break;
       }
 
-      await pool.query(
-        `UPDATE reservarentrevista 
-         SET horafinentrevista = $1 
-         WHERE idreservarentrevista = $2`,
-        [nuevaHoraFin, entrevista.idreservarentrevista]
-      );
+      recalculatedInterviews.push({
+        ...entrevista,
+        horainicio: horaActual,
+        horafin: nuevaHoraFin,
+      });
 
-      console.log(`Entrevista ID ${entrevista.idreservarentrevista} actualizada con hora fin: ${nuevaHoraFin}`);
       horaActual = nuevaHoraFin;
     }
 
-    // Enviar correo al padre de familia
-    await enviarCorreoProfesores({
-      idPadre,
-      idProfesor,
-      idPsicologo,
-      motivo: nombremotivo,
-      materia: "General", // Puedes ajustar para obtener la materia correcta si aplica
-      fecha,
-      horarioInicio: horainicio,
-      descripcion,
-    });
+    // Validar espacio para la nueva entrevista
+    const nuevaEntrevistaInicio = horaActual;
+    const nuevaEntrevistaFinMinutos =
+      Number(nuevaEntrevistaInicio.split(":")[0]) * 60 +
+      Number(nuevaEntrevistaInicio.split(":")[1]) +
+      duracionAtencion;
 
-    res.status(201).json({ success: "Entrevista agendada y correo enviado correctamente." });
+    const nuevaEntrevistaFin = `${String(Math.floor(nuevaEntrevistaFinMinutos / 60)).padStart(
+      2,
+      "0"
+    )}:${String(nuevaEntrevistaFinMinutos % 60).padStart(2, "0")}:00`;
+
+    if (nuevaEntrevistaFin > horafin) {
+      console.log("No hay espacio para la nueva entrevista. Enviando correos.");
+      for (const entrevista of recalculatedInterviews) {
+        await enviarCorreoProfesores({
+          idPadre: entrevista.idpadre,
+          idProfesor,
+          idPsicologo,
+          motivo: entrevista.nombremotivo,
+          materia,
+          fecha,
+          horarioInicio: entrevista.horainicio,
+          descripcion,
+        });
+      }
+
+      return res.status(400).json({
+        error: "No hay espacio disponible. Correos enviados para entrevistas válidas.",
+      });
+    } else {
+      await pool.query(
+        `INSERT INTO reservarentrevista 
+         (idprofesor, idpsicologo, idpadre, fecha, descripcion, idmotivo, estado) 
+         VALUES ($1, $2, $3, $4, $5, $6, NULL)`,
+        [idProfesor, idPsicologo, idPadre, fecha, descripcion, idMotivo]
+      );
+
+      console.log("Nueva entrevista insertada correctamente.");
+      res.status(201).json({
+        success: true,
+        message: "Entrevista agendada correctamente.",
+      });
+    }
   } catch (error) {
     console.error("Error al agendar la entrevista:", error.message);
-    res.status(500).json({ error: `Error al agendar la entrevista: ${error.message}` });
+    res.status(500).json({ error: "Error interno del servidor." });
   }
 };
 
 
 
 
-export const enviarCorreoProfesores = async ({ idPadre, idProfesor, idPsicologo, motivo, materia, fecha, horarioInicio, descripcion }) => {
+export const enviarCorreoProfesores = async ({
+  idPadre,
+  idProfesor,
+  idPsicologo,
+  motivo,
+  materia,
+  fecha,
+  horarioInicio,
+  descripcion,
+}) => {
   try {
     // Validar que todos los campos requeridos están presentes
-    if (!idPadre || !motivo || !materia || !fecha || !horarioInicio || !descripcion || (!idProfesor && !idPsicologo)) {
+    if (
+      !idPadre ||
+      !motivo ||
+      !materia ||
+      !fecha ||
+      !horarioInicio ||
+      !descripcion ||
+      (!idProfesor && !idPsicologo)
+    ) {
       console.error("Faltan datos para enviar el correo", {
-        idPadre, idProfesor, idPsicologo, motivo, materia, fecha, horarioInicio, descripcion
+        idPadre,
+        idProfesor,
+        idPsicologo,
+        motivo,
+        materia,
+        fecha,
+        horarioInicio,
+        descripcion,
       });
       return;
     }
@@ -248,31 +259,31 @@ export const enviarCorreoProfesores = async ({ idPadre, idProfesor, idPsicologo,
 
     // Configurar transporte de correo
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
+      host: "smtp.gmail.com",
       port: 587,
       secure: false,
       auth: {
-        user: 'aleejocr7@gmail.com',
-        pass: 'wltk fhvo uomy nlvt'
+        user: "aleejocr7@gmail.com",
+        pass: "wltk fhvo uomy nlvt",
       },
       tls: {
-        rejectUnauthorized: false
-      }
+        rejectUnauthorized: false,
+      },
     });
 
     // Opciones de correo
     const mailOptions = {
-      from: 'aleejocr7@gmail.com',
+      from: "aleejocr7@gmail.com",
       to: emailPadre,
-      subject: 'Cita agendada',
-      text: mensaje
+      subject: "Cita agendada",
+      text: mensaje,
     };
 
     // Enviar correo
     await transporter.sendMail(mailOptions);
     console.log(`Correo enviado a: ${emailPadre}`);
   } catch (error) {
-    console.error('Error al enviar el correo:', error.message);
+    console.error("Error al enviar el correo:", error.message);
   }
 };
 
@@ -281,7 +292,9 @@ export const obtenerFechasHabilitadas = async (req, res) => {
 
   try {
     if (!idhorario) {
-      return res.status(400).json({ error: "El parámetro idhorario es obligatorio." });
+      return res
+        .status(400)
+        .json({ error: "El parámetro idhorario es obligatorio." });
     }
 
     // Obtener el horario del usuario
@@ -307,9 +320,17 @@ export const obtenerFechasHabilitadas = async (req, res) => {
 
       // Verificar si el día de la semana está en el horario
       const diaSemana = fecha.getDay(); // 0: Domingo, 1: Lunes, ..., 6: Sábado
-      const dia = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][diaSemana];
+      const dia = [
+        "Domingo",
+        "Lunes",
+        "Martes",
+        "Miércoles",
+        "Jueves",
+        "Viernes",
+        "Sábado",
+      ][diaSemana];
 
-      if (horarios.some(h => h.dia === dia)) {
+      if (horarios.some((h) => h.dia === dia)) {
         fechasHabilitadas.push(fecha.toISOString().split("T")[0]);
       }
     }
@@ -321,19 +342,6 @@ export const obtenerFechasHabilitadas = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 export const obtenerColaEsperaPrioridadFIFO = async (req, res) => {
   const { idhorario } = req.query;
 
@@ -341,7 +349,9 @@ export const obtenerColaEsperaPrioridadFIFO = async (req, res) => {
 
   if (!idhorario) {
     console.error("Error: El parámetro idhorario es obligatorio.");
-    return res.status(400).json({ error: "El parámetro idhorario es obligatorio." });
+    return res
+      .status(400)
+      .json({ error: "El parámetro idhorario es obligatorio." });
   }
 
   try {
@@ -354,8 +364,15 @@ export const obtenerColaEsperaPrioridadFIFO = async (req, res) => {
     );
 
     if (horarioData.rows.length === 0) {
-      console.error("Error: No se encontró un horario válido para el idhorario proporcionado.");
-      return res.status(400).json({ error: "No se encontró un horario válido para el idhorario proporcionado." });
+      console.error(
+        "Error: No se encontró un horario válido para el idhorario proporcionado."
+      );
+      return res
+        .status(400)
+        .json({
+          error:
+            "No se encontró un horario válido para el idhorario proporcionado.",
+        });
     }
 
     const { horainicio, horafin } = horarioData.rows[0];
@@ -390,15 +407,22 @@ export const obtenerColaEsperaPrioridadFIFO = async (req, res) => {
     let horaActual = horainicio; // Inicializamos con el horainicio del horario
 
     for (const entrevista of entrevistas.rows) {
-      const duracion = entrevista.prioridad.toLowerCase() === 'alta' ? 25 :
-                       entrevista.prioridad.toLowerCase() === 'media' ? 20 : 10;
+      const duracion =
+        entrevista.prioridad.toLowerCase() === "alta"
+          ? 25
+          : entrevista.prioridad.toLowerCase() === "media"
+          ? 20
+          : 10;
 
       const [horas, minutos] = horaActual.split(":").map(Number);
       const nuevaHoraFinMinutos = horas * 60 + minutos + duracion;
       const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
       const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
 
-      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
+      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(
+        2,
+        "0"
+      )}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
 
       if (nuevaHoraFin > horafin) {
         console.log(
@@ -420,12 +444,17 @@ export const obtenerColaEsperaPrioridadFIFO = async (req, res) => {
       horaActual = nuevaHoraFin;
     }
 
-    console.log("Entrevistas recalculadas finalizadas:", entrevistasRecalculadas);
+    console.log(
+      "Entrevistas recalculadas finalizadas:",
+      entrevistasRecalculadas
+    );
 
     res.status(200).json(entrevistasRecalculadas);
   } catch (error) {
     console.error("Error al obtener la cola de espera:", error.message);
-    res.status(500).json({ error: `Error al obtener la cola de espera: ${error.message}` });
+    res
+      .status(500)
+      .json({ error: `Error al obtener la cola de espera: ${error.message}` });
   }
 };
 
@@ -440,7 +469,9 @@ export const obtenerListaEntrevistaPorFecha = async (req, res) => {
   // Validar que se envíe un identificador válido (Profesor o Psicólogo)
   if (!idProfesor && !idPsicologo) {
     console.error("Error: Se requiere el idProfesor o el idPsicologo.");
-    return res.status(400).json({ error: "Se requiere el idProfesor o el idPsicologo." });
+    return res
+      .status(400)
+      .json({ error: "Se requiere el idProfesor o el idPsicologo." });
   }
 
   try {
@@ -456,8 +487,14 @@ export const obtenerListaEntrevistaPorFecha = async (req, res) => {
       );
 
       if (profesorData.rows.length === 0) {
-        console.error("Error: No se encontró un profesor activo con el ID proporcionado.");
-        return res.status(400).json({ error: "No se encontró un profesor activo con el ID proporcionado." });
+        console.error(
+          "Error: No se encontró un profesor activo con el ID proporcionado."
+        );
+        return res
+          .status(400)
+          .json({
+            error: "No se encontró un profesor activo con el ID proporcionado.",
+          });
       }
 
       idhorario = profesorData.rows[0].idhorario;
@@ -471,8 +508,15 @@ export const obtenerListaEntrevistaPorFecha = async (req, res) => {
       );
 
       if (psicologoData.rows.length === 0) {
-        console.error("Error: No se encontró un psicólogo activo con el ID proporcionado.");
-        return res.status(400).json({ error: "No se encontró un psicólogo activo con el ID proporcionado." });
+        console.error(
+          "Error: No se encontró un psicólogo activo con el ID proporcionado."
+        );
+        return res
+          .status(400)
+          .json({
+            error:
+              "No se encontró un psicólogo activo con el ID proporcionado.",
+          });
       }
 
       idhorario = psicologoData.rows[0].idhorario;
@@ -488,8 +532,15 @@ export const obtenerListaEntrevistaPorFecha = async (req, res) => {
     );
 
     if (horarioData.rows.length === 0) {
-      console.error("Error: No se encontró un horario válido para el idhorario proporcionado.");
-      return res.status(400).json({ error: "No se encontró un horario válido para el idhorario proporcionado." });
+      console.error(
+        "Error: No se encontró un horario válido para el idhorario proporcionado."
+      );
+      return res
+        .status(400)
+        .json({
+          error:
+            "No se encontró un horario válido para el idhorario proporcionado.",
+        });
     }
 
     const { horainicio, horafin } = horarioData.rows[0];
@@ -535,18 +586,27 @@ export const obtenerListaEntrevistaPorFecha = async (req, res) => {
     let horaActual = horainicio;
 
     for (const entrevista of entrevistas.rows) {
-      const duracion = entrevista.prioridad.toLowerCase() === 'alta' ? 25 :
-                       entrevista.prioridad.toLowerCase() === 'media' ? 20 : 10;
+      const duracion =
+        entrevista.prioridad.toLowerCase() === "alta"
+          ? 25
+          : entrevista.prioridad.toLowerCase() === "media"
+          ? 20
+          : 10;
 
       const [horas, minutos] = horaActual.split(":").map(Number);
       const nuevaHoraFinMinutos = horas * 60 + minutos + duracion;
       const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
       const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
 
-      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
+      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(
+        2,
+        "0"
+      )}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
 
       if (nuevaHoraFin > horafin) {
-        console.log(`Entrevista ID ${entrevista.idreservarentrevista} excede el horario permitido. Fin calculado: ${nuevaHoraFin}, Fin permitido: ${horafin}`);
+        console.log(
+          `Entrevista ID ${entrevista.idreservarentrevista} excede el horario permitido. Fin calculado: ${nuevaHoraFin}, Fin permitido: ${horafin}`
+        );
         break;
       }
 
@@ -556,28 +616,44 @@ export const obtenerListaEntrevistaPorFecha = async (req, res) => {
         horafin: nuevaHoraFin,
       });
 
-      console.log(`Entrevista ID ${entrevista.idreservarentrevista} recalculada. Inicio: ${horaActual}, Fin: ${nuevaHoraFin}`);
+      console.log(
+        `Entrevista ID ${entrevista.idreservarentrevista} recalculada. Inicio: ${horaActual}, Fin: ${nuevaHoraFin}`
+      );
 
       horaActual = nuevaHoraFin;
     }
 
-    console.log("Entrevistas recalculadas finalizadas:", entrevistasRecalculadas);
+    console.log(
+      "Entrevistas recalculadas finalizadas:",
+      entrevistasRecalculadas
+    );
 
     res.status(200).json(entrevistasRecalculadas);
   } catch (error) {
     console.error("Error al obtener las entrevistas por fecha:", error.message);
-    res.status(500).json({ error: `Error al obtener las entrevistas por fecha: ${error.message}` });
+    res
+      .status(500)
+      .json({
+        error: `Error al obtener las entrevistas por fecha: ${error.message}`,
+      });
   }
 };
+
+
 export const insertarReservaEntrevista = async (req, res) => {
-  const { idProfesor, idPsicologo, idPadre, fecha, idMotivo, descripcion } = req.body;
+  const { idProfesor, idPsicologo, idPadre, fecha, idMotivo, descripcion } =
+    req.body;
 
   console.log("Datos recibidos del frontend:", req.body);
 
   try {
     // Validar campos obligatorios
     if ((!idProfesor && !idPsicologo) || !idPadre || !fecha || !idMotivo) {
-      return res.status(400).json({ error: "Todos los campos obligatorios deben ser completados." });
+      return res
+        .status(400)
+        .json({
+          error: "Todos los campos obligatorios deben ser completados.",
+        });
     }
 
     // Validar motivo y obtener su prioridad
@@ -594,8 +670,12 @@ export const insertarReservaEntrevista = async (req, res) => {
     }
 
     const { nombremotivo, tipoprioridad } = motivoCheck.rows[0];
-    const duracionAtencion = tipoprioridad.toLowerCase() === "alta" ? 25 :
-                             tipoprioridad.toLowerCase() === "media" ? 20 : 10;
+    const duracionAtencion =
+      tipoprioridad.toLowerCase() === "alta"
+        ? 25
+        : tipoprioridad.toLowerCase() === "media"
+        ? 20
+        : 10;
 
     // Obtener el horario y materia del profesor o psicólogo
     const horarioData = await pool.query(
@@ -605,13 +685,17 @@ export const insertarReservaEntrevista = async (req, res) => {
        LEFT JOIN materia m ON h.idmateria = m.idmateria
        WHERE h.idhorario = (
          SELECT idhorario FROM ${idProfesor ? "profesor" : "psicologo"} 
-         WHERE ${idProfesor ? "idprofesor" : "idpsicologo"} = $1 AND estado = TRUE
+         WHERE ${
+           idProfesor ? "idprofesor" : "idpsicologo"
+         } = $1 AND estado = TRUE
        )`,
       [idProfesor || idPsicologo]
     );
 
     if (horarioData.rows.length === 0) {
-      return res.status(400).json({ error: "No se encontró un horario válido." });
+      return res
+        .status(400)
+        .json({ error: "No se encontró un horario válido." });
     }
 
     const { horainicio, horafin, materia } = horarioData.rows[0];
@@ -640,18 +724,27 @@ export const insertarReservaEntrevista = async (req, res) => {
 
     // Procesar entrevistas previas y recalcular horarios
     for (const entrevista of entrevistasPrevias.rows) {
-      const duracion = entrevista.prioridad.toLowerCase() === "alta" ? 25 :
-                       entrevista.prioridad.toLowerCase() === "media" ? 20 : 10;
+      const duracion =
+        entrevista.prioridad.toLowerCase() === "alta"
+          ? 25
+          : entrevista.prioridad.toLowerCase() === "media"
+          ? 20
+          : 10;
 
       const [horas, minutos] = horaActual.split(":").map(Number);
       const nuevaHoraFinMinutos = horas * 60 + minutos + duracion;
       const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
       const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
 
-      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(2, "0")}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
+      const nuevaHoraFin = `${String(nuevaHoraFinHoras).padStart(
+        2,
+        "0"
+      )}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
 
       if (nuevaHoraFin > horafin) {
-        console.log(`No hay espacio disponible para la entrevista ID ${entrevista.idreservarentrevista}.`);
+        console.log(
+          `No hay espacio disponible para la entrevista ID ${entrevista.idreservarentrevista}.`
+        );
         break;
       }
 
@@ -666,13 +759,22 @@ export const insertarReservaEntrevista = async (req, res) => {
 
     // Validar espacio para la nueva entrevista
     const nuevaEntrevistaInicio = horaActual;
-    const nuevaEntrevistaFinMinutos = Number(nuevaEntrevistaInicio.split(":")[0]) * 60 +
-                                      Number(nuevaEntrevistaInicio.split(":")[1]) + duracionAtencion;
+    const nuevaEntrevistaFinMinutos =
+      Number(nuevaEntrevistaInicio.split(":")[0]) * 60 +
+      Number(nuevaEntrevistaInicio.split(":")[1]) +
+      duracionAtencion;
 
-    const nuevaEntrevistaFin = `${String(Math.floor(nuevaEntrevistaFinMinutos / 60)).padStart(2, "0")}:${String(nuevaEntrevistaFinMinutos % 60).padStart(2, "0")}:00`;
+    const nuevaEntrevistaFin = `${String(
+      Math.floor(nuevaEntrevistaFinMinutos / 60)
+    ).padStart(2, "0")}:${String(nuevaEntrevistaFinMinutos % 60).padStart(
+      2,
+      "0"
+    )}:00`;
 
     if (nuevaEntrevistaFin > horafin) {
-      console.log("La nueva entrevista excede el horario permitido. Será marcada como no válida.");
+      console.log(
+        "La nueva entrevista excede el horario permitido. Será marcada como no válida."
+      );
 
       // Enviar correos a las entrevistas válidas
       for (const entrevista of recalculatedInterviews) {
@@ -683,6 +785,45 @@ export const insertarReservaEntrevista = async (req, res) => {
 
         const { email } = emailQuery.rows[0];
 
+        let profesional;
+        if (idPsicologo) {
+          // Consultar los datos del psicólogo
+          const psicologoQuery = await pool.query(
+            `SELECT nombres, apellidopaterno, apellidomaterno 
+     FROM psicologo 
+     WHERE idpsicologo = $1`,
+            [idPsicologo]
+          );
+
+          if (psicologoQuery.rows.length === 0) {
+            console.error("Error: Psicólogo no encontrado.");
+            return res.status(400).json({ error: "Psicólogo no encontrado." });
+          }
+          profesional = psicologoQuery.rows[0];
+        } else if (idProfesor) {
+          // Consultar los datos del profesor
+          const profesorQuery = await pool.query(
+            `SELECT nombres, apellidopaterno, apellidomaterno 
+     FROM profesor 
+     WHERE idprofesor = $1`,
+            [idProfesor]
+          );
+
+          if (profesorQuery.rows.length === 0) {
+            console.error("Error: Profesor no encontrado.");
+            return res.status(400).json({ error: "Profesor no encontrado." });
+          }
+          profesional = profesorQuery.rows[0];
+        }
+
+        // Construir el objeto profesor para incluir los nombres y apellidos
+        const profesorData = {
+          nombres: profesional.nombres,
+          apellidopaterno: profesional.apellidopaterno,
+          apellidomaterno: profesional.apellidomaterno,
+        };
+
+        // Llamar a la función enviarCorreoPadres con los datos correctos
         await enviarCorreoPadres({
           idPadre: entrevista.idpadre,
           motivo: entrevista.nombremotivo,
@@ -691,21 +832,22 @@ export const insertarReservaEntrevista = async (req, res) => {
           horario: entrevista.horainicio,
           horafin: entrevista.horafin,
           descripcion: descripcion || "",
-          profesor: { nombres: idPsicologo ? "Psicólogo" : "Profesor" },
+          profesor: profesorData, // Incluir los datos del profesor o psicólogo
         });
 
         console.log(`Correo enviado a: ${email}`);
       }
 
       return res.status(400).json({
-        error: "La nueva entrevista excede el horario permitido. Correos enviados para las entrevistas válidas.",
+        error:
+          "La nueva entrevista excede el horario permitido. Correos enviados para las entrevistas válidas.",
       });
     } else {
       await pool.query(
         `INSERT INTO reservarentrevista 
          (idprofesor, idpsicologo, idpadre, fecha, descripcion, idmotivo, estado)
          VALUES ($1, $2, $3, $4, $5, $6, NULL)`,
-        [idProfesor, idPsicologo, idPadre, fecha, descripcion || '', idMotivo]
+        [idProfesor, idPsicologo, idPadre, fecha, descripcion || "", idMotivo]
       );
 
       recalculatedInterviews.push({
@@ -720,17 +862,17 @@ export const insertarReservaEntrevista = async (req, res) => {
     }
 
     res.status(201).json({
-      message: "Nueva entrevista agendada y procesada correctamente. Se confirmara la hora a su correo a las 18:00",
+      message:
+        "Nueva entrevista agendada y procesada correctamente. Se confirmara la hora a su correo a las 18:00",
       success: true, // Indicamos que fue exitoso
-    });    
+    });
   } catch (error) {
     console.error("Error al insertar la reserva de entrevista:", error);
-    res.status(500).json({ error: "Error al insertar la reserva de entrevista." });
+    res
+      .status(500)
+      .json({ error: "Error al insertar la reserva de entrevista." });
   }
 };
-
-
-
 
 export const enviarCorreoPadres = async ({
   idPadre,
@@ -755,7 +897,15 @@ export const enviarCorreoPadres = async ({
 
   try {
     // Verificar que todos los campos requeridos estén presentes
-    if (!idPadre || !motivo || !materia || !fecha || !horario || !horafin || !profesor) {
+    if (
+      !idPadre ||
+      !motivo ||
+      !materia ||
+      !fecha ||
+      !horario ||
+      !horafin ||
+      !profesor
+    ) {
       console.error("Faltan datos para enviar el correo", {
         idPadre,
         motivo,
@@ -785,7 +935,10 @@ export const enviarCorreoPadres = async ({
     const emailPadre = padre.email;
 
     if (!emailPadre) {
-      console.error("Correo electrónico del padre no encontrado para idpadre:", idPadre);
+      console.error(
+        "Correo electrónico del padre no encontrado para idpadre:",
+        idPadre
+      );
       return;
     }
 
@@ -805,8 +958,6 @@ export const enviarCorreoPadres = async ({
     Atentamente,
     Profesor: ${profesor.nombres}
   `;
-  
-
 
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
@@ -835,16 +986,6 @@ export const enviarCorreoPadres = async ({
   }
 };
 
-
-
-
-
-
-
-
-
-
-
 export const eliminarEntrevista = async (req, res) => {
   const { idReservarEntrevista } = req.params; // ID de la entrevista a modificar
   const { nuevoEstado } = req.body; // Nuevo estado proporcionado en el cuerpo de la solicitud
@@ -852,11 +993,16 @@ export const eliminarEntrevista = async (req, res) => {
   try {
     // Validar que se proporcionen los datos necesarios
     if (!idReservarEntrevista || nuevoEstado === undefined) {
-      return res.status(400).json({ error: "Faltan datos requeridos para cambiar el estado de la entrevista." });
+      return res
+        .status(400)
+        .json({
+          error:
+            "Faltan datos requeridos para cambiar el estado de la entrevista.",
+        });
     }
 
     // Convertir el nuevo estado en un booleano según el valor proporcionado
-    const estadoBooleano = nuevoEstado === 'completado';
+    const estadoBooleano = nuevoEstado === "completado";
 
     // Actualizar el estado de la entrevista en la base de datos
     const resultado = await pool.query(
@@ -873,30 +1019,21 @@ export const eliminarEntrevista = async (req, res) => {
     }
 
     res.status(200).json({
-      message: `Estado de la entrevista actualizado a ${estadoBooleano ? 'completado' : 'cancelado'}`,
-      entrevista: resultado.rows[0]
+      message: `Estado de la entrevista actualizado a ${
+        estadoBooleano ? "completado" : "cancelado"
+      }`,
+      entrevista: resultado.rows[0],
     });
   } catch (error) {
-    console.error("Error al cambiar el estado de la entrevista:", error.message);
-    res.status(500).json({ error: "Error al cambiar el estado de la entrevista." });
+    console.error(
+      "Error al cambiar el estado de la entrevista:",
+      error.message
+    );
+    res
+      .status(500)
+      .json({ error: "Error al cambiar el estado de la entrevista." });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export const obtenerListaEntrevistaPorRango = async (req, res) => {
   const { startDate, endDate } = req.body;
@@ -934,14 +1071,17 @@ export const obtenerListaEntrevistaPorRango = async (req, res) => {
     const citasConNuevaHora = citas.rows.map((cita) => {
       // Si horafinentrevista es null, no se puede calcular la nueva hora
       if (!cita.horafinentrevista) {
-        return { ...cita, nuevaHorafinEntrevista: 'No disponible' };
+        return { ...cita, nuevaHorafinEntrevista: "No disponible" };
       }
 
       const [horas, minutos] = cita.horafinentrevista.split(":").map(Number);
       const nuevaHoraFinMinutos = horas * 60 + minutos + duracionAtencion;
       const nuevaHoraFinHoras = Math.floor(nuevaHoraFinMinutos / 60);
       const nuevaHoraFinRestantesMinutos = nuevaHoraFinMinutos % 60;
-      const nuevaHorafinEntrevista = `${String(nuevaHoraFinHoras).padStart(2, '0')}:${String(nuevaHoraFinRestantesMinutos).padStart(2, '0')}:00`;
+      const nuevaHorafinEntrevista = `${String(nuevaHoraFinHoras).padStart(
+        2,
+        "0"
+      )}:${String(nuevaHoraFinRestantesMinutos).padStart(2, "0")}:00`;
 
       return { ...cita, nuevaHorafinEntrevista };
     });
@@ -949,21 +1089,24 @@ export const obtenerListaEntrevistaPorRango = async (req, res) => {
     res.status(200).json(citasConNuevaHora);
   } catch (error) {
     console.error("Error al obtener la lista de entrevistas:", error.message);
-    res.status(500).json({ error: `Error al obtener la lista de entrevistas: ${error.message}` });
+    res
+      .status(500)
+      .json({
+        error: `Error al obtener la lista de entrevistas: ${error.message}`,
+      });
   }
 };
 
 export const verEntrevistasPadres = async (req, res) => {
   const { idPadre } = req.params;
 
-
-
   try {
     if (!idPadre) {
       return res.status(400).json({ error: "El idPadre es obligatorio" });
     }
 
-    const entrevistas = await pool.query(`
+    const entrevistas = await pool.query(
+      `
       SELECT 
         re.idreservarentrevista AS id,
         TO_CHAR(re.fecha, 'YYYY-MM-DD') AS fecha,
@@ -981,12 +1124,16 @@ export const verEntrevistasPadres = async (req, res) => {
       INNER JOIN materia m ON h.idmateria = m.idmateria
       WHERE re.idpadre = $1
       ORDER BY re.fecha ASC, re.horafinentrevista ASC;
-    `, [idPadre]);
-
-
+    `,
+      [idPadre]
+    );
 
     if (entrevistas.rows.length === 0) {
-      return res.status(404).json({ error: "No se encontraron entrevistas para este padre de familia" });
+      return res
+        .status(404)
+        .json({
+          error: "No se encontraron entrevistas para este padre de familia",
+        });
     }
 
     res.status(200).json({
